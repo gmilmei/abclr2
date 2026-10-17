@@ -1,0 +1,406 @@
+;;; Time Warp: Evaluator
+;;; Feb. 15, 1992 by MASUHARA, H.
+;;; Jul. 31, 1992 modified along to the change of script handling.
+;;; Apr.  2, 1993 bug fix according to the modification of compiler,
+;;;		  thanks to Chao Cheong.
+
+(defun add-cache (cache Id output LVT)
+  ;; (format t "~&Add cache=~S Id=~S output=~S LVT=~S" cache Id output LVT)
+  (let ((p (assoc Id cache :test #'eq)))
+    (if p
+      (progn (setf (second p) output
+                   (third p) LVT)
+             cache)
+      (cons (list Id output LVT) cache))))
+
+(defun lookup-cache (cache Id)
+  ;; (format t "~&Lookup cache=~S Id=~S" cache Id)
+  (let ((p (assoc Id cache :test #'eq)))
+    (and p (rest p))))
+
+[object TW-eval-gen
+  (script
+   (=> [:new scheduler raw-eval]
+       [object TW-eval
+          ;; metaobject with priority queue
+          (meta-gen TW-meta-eval-gen)
+          (state [LVT-cache := nil])
+	  (script
+	   ;; with LVT
+	   (=> [:do Exp Env Id Gid Eval Outputs LVT] @ C
+               ;;(format t "~&Got expression ~S" Exp)
+               [LVT-cache := (add-cache LVT-cache Id Outputs LVT)]
+	       (match (parse-exp Exp)
+		 (is [:compiled scriptBody]
+		     (funcall scriptBody C Env Id Gid Eval))
+		 (is [:variable Var]
+                     ;;(format t "~&Variable ~S is looked up" Var)
+		     (match Var
+		       (is 'Me ![den Id])
+		       (is 'Group !Gid)
+		       (is 'LVT !LVT)	; local virtual time
+		       (otherwise [Env <= [:value-of Var] @ C])))
+		 (is [:self-evaluate form]
+		     [C <= (funcall form)])
+		 (is [:send-past Target Message Reply]
+		     [C <= nil]
+		     (if (not (null Target))
+                       (progn 
+			   [[meta Target]
+			    <= [:message Message Reply [den Id]]]
+					 ;; LVT LVT
+			   #+COMMENT
+			   [Outputs
+			    <= [:push Target Message Reply LVT LVT]])))
+		 ;; past send with VRT
+		 (is [:send-past Target Message Reply :VRT VRT]
+		     [C <= nil]
+		     (if (not (null Target))
+			 (progn 
+			   [[meta Target]
+			    <= [:message Message Reply [den Id]
+					 LVT VRT]] ; with timestamp
+			   [Outputs
+			    <= [:push Target Message Reply LVT VRT]])))
+		 (is [:send-now Target Message]
+		     (if (not (null Target))
+                       (progn
+                         [[meta Target]
+                           <= [:message Message C [den Id]]]
+					;; LVT LVT
+                         #+COMMENT
+			 [Outputs
+                           <= [:push Target Message Reply LVT LVT]])))
+		 ;; now send with VRT
+		 (is [:send-now Target Message :VRT VRT]
+		     (if (not (null Target))
+			 (progn
+			   [[meta Target]
+			    <= [:message Message C [den Id] LVT VRT]]
+			   [Outputs
+			    <= [:push Target Message Reply LVT VRT]])))
+		 (is [:script scriptObject] ; script object
+		     (call-script-body scriptObject C Env Id Gid Eval))
+		 (is [:object-def Name Meta-gen GMgr State Script]
+		     (let ((Group-for-obj (or GMgr Gid))
+			   (set-name 
+			    [cont object
+				  (if Name
+				      [Env
+				       <= [:set-local Name [den object]] @ C]
+				      [C <= [den object]])]))
+		       (if Meta-gen
+			   [Group-for-obj 
+			    <= :evaluator
+			    @ [cont evaluator-for-obj
+				    [Meta-gen <= [:new State Env Script
+						       evaluator-for-obj
+						       Group-for-obj]
+					      @ set-name]]]
+			   [Group-for-obj
+			    <= [:new State Env Script] @ set-name])))
+		 (is [:group-def Name StateSpec Script]
+		     [Gid <= [:new-group StateSpec Env Script]
+			  @ (if Name
+				[cont GMgr
+				      [Env <= [:set-local Name GMgr] @ C]]
+				C)])
+		 (otherwise
+		  (warn "Illegal expression ~S" Exp))))
+	   ;; sequential execution with LVT
+	   (=> [:do-progn [] Env Id Gid Eval Outputs LVT] @ C
+	       [C <= nil])
+	   (=> [:do-progn [LastExp] Env Id Gid Eval Outputs LVT] @ C
+	       [Eval <= [:do LastExp Env Id Gid Eval Outputs LVT] @ C])
+	   (=> [:do-progn (bracket* FirstExp RestExp) Env Id Gid Eval
+			  Outputs LVT] @ C
+	       [Eval
+		<= [:do FirstExp Env Id Gid Eval Outputs LVT]
+		@ [cont _
+			[Eval <= [:do-progn RestExp Env Id Gid Eval
+					    Outputs LVT]
+			      @ C]]])
+	   (=> [:do-evlis [] Env Id Gid Eval Outputs LVT] @ C
+	       [C <= nil])
+	   (=> [:do-evlis (bracket* FirstExp RestExp) Env Id Gid Eval
+			  Outputs LVT] @ C
+	       [Eval
+		<= [:do FirstExp Env Id Gid Eval Outputs LVT]
+		@ [cont FirstVal
+			[Eval
+			 <= [:do-evlis RestExp Env Id Gid Eval Outputs LVT]
+			 @ [cont RestVals
+				 [C <= (cons FirstVal RestVals)]]]]])
+           ;; messages without LVT; delegate raw-evaluator
+           (=> any @ C
+               ;;(format t "~&NO LVT in ~S" any)
+               (let ((extra (lookup-cache LVT-cache (fourth any))))
+                 (if extra
+                   [Me <= (append any extra) @ C]
+                   (progn
+		     [raw-eval <= any @ C])))))]
+       [[meta TW-eval] <= [:set-scheduler scheduler]]
+       !TW-eval
+))]
+
+[object TW-non-reifying-eval-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new raw-eval]
+       [object TW-non-reifying-eval
+          ;; metaobject with priority queue
+          (meta-gen non-reifying-meta)
+          (state [LVT-cache := nil])
+	  (script
+	   ;; with LVT
+	   (=> [:do Exp Env Id Gid Eval Outputs LVT] @ C
+               ;;(format t "~&Got expression ~S" Exp)
+               [LVT-cache := (add-cache LVT-cache Id Outputs LVT)]
+	       (match (parse-exp Exp)
+		 (is [:compiled scriptBody]
+		     (call-script-body scriptBody C Env Id Gid Eval))
+		 (is [:variable Var]
+                     ;;(format t "~&Variable ~S is looked up" Var)
+		     (match Var
+		       (is 'Me ![den Id])
+		       (is 'Group !Gid)
+		       (is 'LVT !LVT)	; local virtual time
+		       (otherwise [Env <= [:value-of Var] @ C])))
+		 (is [:self-evaluate form]
+;; PORT-BEGIN: Invoke the initializer thunk; evaluating it returns the function.
+;;|		     [C <= (eval form)])
+;; PORT-ACTIVE
+		     [C <= (funcall form)])
+;; PORT-END
+		 (is [:send-past Target Message Reply]
+		     [C <= nil]
+		     (if (not (null Target))
+                       (progn 
+			   [[meta Target]
+			    <= [:message Message Reply [den Id]]]
+					 ;; LVT LVT
+			   #+COMMENT
+			   [Outputs
+			    <= [:push Target Message Reply LVT LVT]])))
+		 ;; past send with VRT
+		 (is [:send-past Target Message Reply :VRT VRT]
+		     [C <= nil]
+		     (if (not (null Target))
+			 (progn 
+			   [[meta Target]
+			    <= [:message Message Reply [den Id]
+					 LVT VRT]] ; with timestamp
+			   [Outputs
+			    <= [:push Target Message Reply LVT VRT]])))
+		 (is [:send-now Target Message]
+		     (if (not (null Target))
+                       (progn
+                         [[meta Target]
+                           <= [:message Message C [den Id]]]
+					;; LVT LVT
+                         #+COMMENT
+			 [Outputs
+                           <= [:push Target Message Reply LVT LVT]])))
+		 ;; now send with VRT
+		 (is [:send-now Target Message :VRT VRT]
+		     (if (not (null Target))
+			 (progn
+			   [[meta Target]
+			    <= [:message Message C [den Id] LVT VRT]]
+			   [Outputs
+			    <= [:push Target Message Reply LVT VRT]])))
+		 (is [:script scriptObject] ; script object
+		     (call-script-body scriptObject C Env Id Gid Eval))
+		 (is [:object-def Name Meta-gen GMgr State Script]
+		     (let ((Group-for-obj (or GMgr Gid))
+			   (set-name 
+			    [cont object
+				  (if Name
+				      [Env
+				       <= [:set-local Name [den object]] @ C]
+				      [C <= [den object]])]))
+		       (if Meta-gen
+			   [Group-for-obj 
+			    <= :evaluator
+			    @ [cont evaluator-for-obj
+				    [Meta-gen <= [:new State Env Script
+						       evaluator-for-obj
+						       Group-for-obj]
+					      @ set-name]]]
+			   [Group-for-obj
+			    <= [:new State Env Script] @ set-name])))
+		 (is [:group-def Name StateSpec Script]
+		     [Gid <= [:new-group StateSpec Env Script]
+			  @ (if Name
+				[cont GMgr
+				      [Env <= [:set-local Name GMgr] @ C]]
+				C)])
+		 (otherwise
+		  (warn "Illegal expression ~S" Exp))))
+	   ;; sequential execution with LVT
+	   (=> [:do-progn [] Env Id Gid Eval Outputs LVT] @ C
+	       [C <= nil])
+	   (=> [:do-progn [LastExp] Env Id Gid Eval Outputs LVT] @ C
+	       [Eval <= [:do LastExp Env Id Gid Eval Outputs LVT] @ C])
+	   (=> [:do-progn (bracket* FirstExp RestExp) Env Id Gid Eval
+			  Outputs LVT] @ C
+	       [Eval
+		<= [:do FirstExp Env Id Gid Eval Outputs LVT]
+		@ [cont _
+			[Eval <= [:do-progn RestExp Env Id Gid Eval
+					    Outputs LVT]
+			      @ C]]])
+	   (=> [:do-evlis [] Env Id Gid Eval Outputs LVT] @ C
+	       [C <= nil])
+	   (=> [:do-evlis (bracket* FirstExp RestExp) Env Id Gid Eval
+			  Outputs LVT] @ C
+	       [Eval
+		<= [:do FirstExp Env Id Gid Eval Outputs LVT]
+		@ [cont FirstVal
+			[Eval
+			 <= [:do-evlis RestExp Env Id Gid Eval Outputs LVT]
+			 @ [cont RestVals
+				 [C <= (cons FirstVal RestVals)]]]]])
+           ;; messages without LVT; delegate raw-evaluator
+           (=> any @ C
+               ;;(format t "~&NO LVT in ~S" any)
+               (let ((extra (lookup-cache LVT-cache (fourth any))))
+                 (if extra
+                   [Me <= (append any extra) @ C]
+                   (progn
+		     [raw-eval <= any @ C])))))]
+       !TW-non-reifying-eval
+))]
+
+[object TW-no-schedule-eval-gen
+  (script
+   (=> [:new raw-eval]
+       [object TW-no-schedule-eval
+          ;; metaobject with priority queue
+          (state [LVT-cache := nil])
+	  (script
+	   ;; with LVT
+	   (=> [:do Exp Env Id Gid Eval Outputs LVT] @ C
+               ;;(format t "~&Got expression ~S" Exp)
+               [LVT-cache := (add-cache LVT-cache Id Outputs LVT)]
+	       (match (parse-exp Exp)
+		 (is [:compiled scriptBody]
+		     (call-script-body scriptBody C Env Id Gid Eval))
+		 (is [:variable Var]
+                     ;;(format t "~&Variable ~S is looked up" Var)
+		     (match Var
+		       (is 'Me ![den Id])
+		       (is 'Group !Gid)
+		       (is 'LVT !LVT)	; local virtual time
+		       (otherwise [Env <= [:value-of Var] @ C])))
+		 (is [:self-evaluate form]
+;; PORT-BEGIN: Invoke the initializer thunk; evaluating it returns the function.
+;;|		     [C <= (eval form)])
+;; PORT-ACTIVE
+		     [C <= (funcall form)])
+;; PORT-END
+		 (is [:send-past Target Message Reply]
+		     [C <= nil]
+		     (if (not (null Target))
+                       (progn 
+			   [[meta Target]
+			    <= [:message Message Reply [den Id]]]
+					 ;; LVT LVT
+			   #+COMMENT
+			   [Outputs
+			    <= [:push Target Message Reply LVT LVT]])))
+		 ;; past send with VRT
+		 (is [:send-past Target Message Reply :VRT VRT]
+		     [C <= nil]
+		     (if (not (null Target))
+			 (progn 
+			   [[meta Target]
+			    <= [:message Message Reply [den Id]
+					 LVT VRT]] ; with timestamp
+			   [Outputs
+			    <= [:push Target Message Reply LVT VRT]])))
+		 (is [:send-now Target Message]
+		     (if (not (null Target))
+                       (progn
+                         [[meta Target]
+                           <= [:message Message C [den Id]]]
+					;; LVT LVT
+                         #+COMMENT
+			 [Outputs
+                           <= [:push Target Message Reply LVT LVT]])))
+		 ;; now send with VRT
+		 (is [:send-now Target Message :VRT VRT]
+		     (if (not (null Target))
+			 (progn
+			   [[meta Target]
+			    <= [:message Message C [den Id] LVT VRT]]
+			   [Outputs
+			    <= [:push Target Message Reply LVT VRT]])))
+;; PORT-BEGIN: Accept the existing :script representation, as the other evaluators do.
+;; PORT-ACTIVE
+		 (is [:script scriptObject]
+		     (call-script-body scriptObject C Env Id Gid Eval))
+;; PORT-END
+		 (is [:object-def Name Meta-gen GMgr State Script]
+		     (let ((Group-for-obj (or GMgr Gid))
+			   (set-name 
+			    [cont object
+				  (if Name
+				      [Env
+				       <= [:set-local Name [den object]] @ C]
+				      [C <= [den object]])]))
+		       (if Meta-gen
+			   [Group-for-obj 
+			    <= :evaluator
+			    @ [cont evaluator-for-obj
+				    [Meta-gen <= [:new State Env Script
+						       evaluator-for-obj
+						       Group-for-obj]
+					      @ set-name]]]
+			   [Group-for-obj
+			    <= [:new State Env Script] @ set-name])))
+		 (is [:group-def Name StateSpec Script]
+		     [Gid <= [:new-group StateSpec Env Script]
+			  @ (if Name
+				[cont GMgr
+				      [Env <= [:set-local Name GMgr] @ C]]
+				C)])
+		 (otherwise
+		  (warn "Illegal expression ~S" Exp))))
+	   ;; sequential execution with LVT
+	   (=> [:do-progn [] Env Id Gid Eval Outputs LVT] @ C
+	       [C <= nil])
+	   (=> [:do-progn [LastExp] Env Id Gid Eval Outputs LVT] @ C
+	       [Eval <= [:do LastExp Env Id Gid Eval Outputs LVT] @ C])
+	   (=> [:do-progn (bracket* FirstExp RestExp) Env Id Gid Eval
+			  Outputs LVT] @ C
+	       [Eval
+		<= [:do FirstExp Env Id Gid Eval Outputs LVT]
+		@ [cont _
+			[Eval <= [:do-progn RestExp Env Id Gid Eval
+					    Outputs LVT]
+			      @ C]]])
+	   (=> [:do-evlis [] Env Id Gid Eval Outputs LVT] @ C
+	       [C <= nil])
+	   (=> [:do-evlis (bracket* FirstExp RestExp) Env Id Gid Eval
+			  Outputs LVT] @ C
+	       [Eval
+		<= [:do FirstExp Env Id Gid Eval Outputs LVT]
+		@ [cont FirstVal
+			[Eval
+			 <= [:do-evlis RestExp Env Id Gid Eval Outputs LVT]
+			 @ [cont RestVals
+				 [C <= (cons FirstVal RestVals)]]]]])
+           ;; messages without LVT; delegate raw-evaluator
+           (=> any @ C
+               ;;(format t "~&NO LVT in ~S" any)
+               (let ((extra (lookup-cache LVT-cache (fourth any))))
+                 (if extra
+                   [Me <= (append any extra) @ C]
+                   (progn
+		     [raw-eval <= any @ C])))))]
+       !TW-no-schedule-eval
+))]
+
+
+

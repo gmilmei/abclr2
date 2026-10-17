@@ -1,0 +1,25 @@
+(defun report-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&REPORT-PASS ~A~%" name)
+  (error "REPORT-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/report-tests/13-report" :use-source t)
+(report report-subject :message nil :begin nil :end nil)
+[macro-filter := [[meta report-subject] <== :reporter]]
+(report-check "macro-silent-result" [report-subject <== [:echo :silent-filter]] :silent-filter)
+(dolist (mask '((nil nil nil) (t nil nil) (nil t nil) (nil nil t)
+               (t t nil) (t nil t) (nil t t) (t t t)))
+ [report-recorder <== :reset]
+ [filter := [standard-filter-gen <== [:new report-recorder
+                :message (first mask) :begin (second mask) :end (third mask)]]]
+ [[meta report-subject] <= [:set-reporter filter]]
+ (report-check "filtered-result" [report-subject <== [:echo 9]] 9)
+ (report-check "filtered-types" (mapcar #'second [report-recorder <== :events])
+   (remove nil (list (if (first mask) :message nil)
+                     (if (second mask) :begin nil)
+                     (if (third mask) :end nil)))))
+[[meta report-subject] <= [:set-reporter macro-filter]]
+(report-check "macro-filter-restored" [[meta report-subject] <== :reporter] macro-filter)
+(noreport report-subject)
+[default-reporter <= [:report [meta report-original] :message [:label-probe :reply-marker :sender-marker]]]
+(format t "~&REPORT-END~%")
+:q

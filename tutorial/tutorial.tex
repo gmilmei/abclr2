@@ -1,0 +1,684 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{fontspec}
+\setmainfont{Libertinus Serif}
+\setsansfont{Libertinus Sans}
+\setmonofont{Noto Sans Mono}[
+  Scale=MatchLowercase,
+  Weight=400,
+  BoldFont={Noto Sans Mono},
+  BoldFeatures={Weight=700}
+]
+\usepackage[english]{babel}
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage[skip=6pt plus 1pt,indent=0pt]{parskip}
+\setlength{\emergencystretch}{1em}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\setcounter{tocdepth}{2}
+
+\definecolor{abclblue}{HTML}{163A5F}
+\definecolor{abclgray}{HTML}{F4F4F4}
+\hypersetup{
+  colorlinks=true,linkcolor=abclblue,urlcolor=abclblue,citecolor=abclblue,
+  pdftitle={Programming in ABCL/R2: A Guided Introduction to Objects, Concurrency, and Reflection},
+  pdfsubject={Objects, messages, concurrency, and reflection in ABCL/R2},
+  pdflang={en}
+}
+\lstset{
+  basicstyle=\ttfamily\small,
+  backgroundcolor=\color{abclgray},
+  frame=single,
+  rulecolor=\color{black!20},
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  breaklines=true,
+  aboveskip=\bigskipamount,
+  belowskip=\medskipamount
+}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\filepath}[1]{\path{#1}}
+% Source excerpts are prepared by the external SBCL build step, not by TeX.
+\input{build/tutorial-build/listings.tex}
+\newcommand{\sourcelisting}[2][]{%
+  \edef\preparedlisting{\csname listing:\detokenize{#2|#1}\endcsname}%
+  \lstinputlisting[#1]{\preparedlisting}}
+% Keep short listings together; put spacing outside the minipage because
+% ordinary vertical glue at the top of a minipage is discarded. The
+% non-discardable inner padding also leaves room for the listing's frame.
+\newenvironment{codeblock}{%
+  \par\addvspace{\medskipamount}\noindent
+  \begin{minipage}{\linewidth}%
+  \vspace*{\medskipamount}%
+  \lstset{aboveskip=0pt,belowskip=0pt}%
+}{%
+  \end{minipage}\par\addvspace{\medskipamount}}
+\newcommand{\wholelisting}[2][]{%
+  \begin{codeblock}%
+  \sourcelisting[#1]{#2}%
+  \end{codeblock}}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+\title{Programming in ABCL/R2\\[0.5em]
+  \large A Guided Introduction to Objects,\\
+  Concurrency, and Reflection}
+\author{For the September 4, 1998 distribution}
+\date{\today}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+This book takes you from your first interactive session to concurrent,
+reflective objects in ABCL/R2. Each major concept is introduced through a
+small example, with exercises to help you apply what you have learned.
+You need experience with object-oriented programming and some Lisp, but
+not Common Lisp, actors, or reflection. The goal is to read and explain
+the original programs in the accompanying distribution, not just run
+the additional teaching examples.
+\end{abstract}
+\paragraph{How to use this book.}
+Read the opening chapters in order, including the Lisp reading guide.
+Then work through futures, reflection, and the original-source reading projects.
+The original examples form the thread connecting concepts to complete programs.
+They live in \filepath{examples/}; experiment on copies, not the reference sources.
+Executable programs live in \filepath{tutorial/examples/}.
+The later sections contain worked exercises and a complete job-service solution.
+Start from the repository root unless a command says otherwise.
+\begingroup
+\linespread{0.90}
+\small
+\setlength{\parskip}{0pt}
+\tableofcontents
+\endgroup
+\newpage
+
+\section{What Is ABCL/R2?}
+
+ABCL/R2 is an object-oriented, concurrent, reflective programming language.
+A program consists primarily of objects that receive messages and execute
+scripts. Concurrency is part of the language: messages are placed in object
+queues, and computations in different objects can make progress independently.
+
+The accompanying distribution
+(documented as version 0.60, September 1998) implements this model using
+partial compilation. The examples here use its SBCL implementation.
+We will unpack these implementation terms in the reflection chapter.
+Masuhara's 1992 thesis supplies the historical model~\cite{masuhara}.
+
+\paragraph{Thinking in objects.}
+Start from the familiar idea of an object with state and behavior:
+\begin{enumerate}[nosep]
+  \item It owns state.
+  \item It receives messages and matches them against patterns.
+  \item A matching script is selected for execution.
+  \item The script can compute, change state, create objects, and send
+        further messages.
+\end{enumerate}
+
+\input{tutorial/chapters/oop-to-messages}
+
+\section{Installation and Your First Session}
+\label{sec:first-session}
+
+Build the interpreter and start it from the project directory:
+
+\begin{lstlisting}[language=bash]
+make
+./src/saved_abclr2
+\end{lstlisting}
+
+The prompt accepts ABCL/R2 expressions. Type \code{:q} to quit or
+\code{:reset} to restart the session. To make experiments reproducible,
+save your program files in a separate directory of your choice.
+For example, load a program named \filepath{demo.abclr2} from the session:
+
+\begin{lstlisting}
+(inc "demo" :use-source t)
+\end{lstlisting}
+
+The Makefile uses SBCL and writes \filepath{src/saved_abclr2}.
+Running the saved image does not require installing it system-wide.
+
+Omit the \code{.abclr2} extension when using \code{inc}.
+\code{:use-source t} forces translation from the ABCL/R2 source rather
+than reuse of an existing translation. Keep this option while trying
+the small sessions. Section~\ref{sec:files} covers compilation, libraries,
+modules, and loading contexts once objects and messages are familiar.
+
+\input{tutorial/chapters/lisp-reading}
+
+\subsection{The Boundary with Common Lisp}
+
+ABCL/R2 uses a Common Lisp host, but its scripts are not arbitrary
+Common Lisp programs. The following is a compatibility boundary, not a
+list of prerequisites you must already know:
+
+Supported special forms include \code{declare}, \code{function}, \code{if},
+\code{let}, \code{let*}, \code{progn}, \code{quote}, and \code{setq}.
+The \code{do} form is also implemented as a special form.
+This version does not provide the entire Common Lisp language:
+\code{tagbody/go}, \code{block/return}, and multiple-value facilities are
+unavailable. ABCL forms such as \code{wait-for} and \code{match-loop}
+are also unsupported.
+The original guide additionally excludes \code{wait-for-loop},
+routine calls, the \code{suicide} form, and the brace-delimited form
+for sending several synchronous requests together~\cite{guide}.
+This does not exclude an ordinary now-type send: \code{<==} still
+waits for one request's reply. Use explicit reply protocols or futures
+when coordinating several requests.
+The contents of \code{declare} are ignored by this implementation;
+do not rely on a declaration to validate data.
+
+\paragraph{A boundary with host Lisp.}
+A \code{function} form can embed a host Lisp lambda, but that lambda
+cannot capture the surrounding ABCL/R2 state or lexical environment.
+Its body cannot contain ABCL/R2 message sends or object definitions.
+Bindings introduced inside the lambda are ordinary host Lisp bindings.
+Use an object script, rather than a host lambda, when you need access
+to ABCL/R2 state or communication~\cite{guide}.
+
+\section{Objects, Scripts, and Messages}
+\label{sec:objects}
+
+\subsection{A Small Useful Object}
+
+Define an object using \code{[object ...]}. Its behavior is specified in
+a \code{script} block. The arrow \code{=>} connects a message pattern
+to the body that handles a matching message.
+
+\begin{lstlisting}
+[object greeter
+  (script
+    (=> [:hello name]
+        (format t "Hello, ~A!~%" name)))]
+\end{lstlisting}
+
+The pattern \code{[:hello name]} binds \code{name} to the argument of
+a message tagged \code{:hello}. The object is bound to the name
+\code{greeter}. To trigger its greeting, send a message:
+
+\begin{lstlisting}
+[greeter <= [:hello "Ada"]]
+; Prints: Hello, Ada!
+\end{lstlisting}
+
+\subsection{Replying with \code{!}}
+
+The expression \code{!exp} sends the value of \code{exp} to the reply
+destination of the current message. Here is a simple calculator:
+
+\begin{lstlisting}
+[object calculator
+  (script
+    (=> [:add x y] !(+ x y))
+    (=> [:square x] !(* x x)))]
+
+[calculator <== [:add 2 3]]       ; => 5
+[calculator <== [:square 7]]      ; => 49
+\end{lstlisting}
+
+The exclamation mark denotes a reply in the message protocol.
+Use ordinary Common Lisp functions such as \code{format} for side effects
+such as logging or console output.
+An ordinary final expression does not automatically reply to the sender:
+use \code{!} or send explicitly to the bound reply destination.
+Conversely, \code{!} sends a message; it does not end the handler.
+Later expressions can still execute, and several \code{!}
+forms can send several replies. Use exactly one reply for an ordinary
+now-type request; a future stream can deliberately accept several.
+
+\subsection{Message Patterns}
+
+Patterns can contain variables, literals, and nested lists:
+
+\begin{lstlisting}
+[object router
+  (script
+    (=> [:route :urgent text]
+        (format t "URGENT: ~A~%" text))
+    (=> [:route destination text]
+        (format t "to ~A: ~A~%" destination text)))]
+\end{lstlisting}
+
+The first script matches the literal \code{:urgent}; the second binds
+\code{destination} and \code{text}. In this distribution, the
+\code{match} form does not support \code{where} constraints.
+For constraints on \emph{script patterns}, load the \code{heavy-meta}
+library before defining the object. These are distinct facilities:
+loading the library does not add constraints to \code{match}.
+Section~\ref{sec:guards} follows the original counter and explains the
+required metaobject setup, including explicit groups.
+
+The ordinary metaobject selects the first matching script in its script
+list. Put specific patterns before catch-all patterns, as the original
+bird/emu example in \filepath{examples/misc/inherit.abclr2} does.
+A message with no matching script is warned about and discarded;
+it is not retained until a suitable script appears.
+A now-type caller receives no automatic failure reply in that case.
+Check message tags and shapes before assuming that a wait will finish.
+
+A header can also bind the sender separately from the payload and reply
+destination: \code{(=> pattern @ R from S body)}.
+Here \code{R} is where the reply should go and \code{S} is who sent the
+request; forwarding can make those different objects.
+The original inheritance example uses both fields.
+
+\input{tutorial/chapters/patterns}
+
+\section{State and Assignment}
+\label{sec:state}
+
+A state entry has the form \code{(state [variable := initial-value])}.
+Assignment uses \code{[variable := expression]}.
+
+\begin{lstlisting}
+[object counter
+  (state [n := 0])
+  (script
+    (=> :inc
+        [n := (+ n 1)]
+        !n)
+    (=> :get !n)
+    (=> [:add amount]
+        [n := (+ n amount)]
+        !n))]
+
+[counter <== :inc]         ; => 1
+[counter <== [:add 4]]     ; => 5
+[counter <== :get]         ; => 5
+\end{lstlisting}
+
+State variables are directly accessible inside a script.
+Expressions in a script body execute in sequence.
+The example also shows that a message pattern can consist of a single keyword.
+
+\subsection{Lexical Variables}
+
+ABCL/R2 shares lexical variables among objects created within their scope.
+This differs from ABCL/1: a change to a shared variable can become visible
+to other objects. With concurrent accesses, do not assume a particular
+execution order. Encapsulate shared state in an object responsible for
+handling access to it.
+
+\section{Two Kinds of Messages}
+\label{sec:messages}
+
+The syntax distinguishes two basic ways to send messages:
+
+\begin{longtable}{L{0.28\textwidth}L{0.29\textwidth}L{0.33\textwidth}}
+\textbf{Form} & \textbf{Meaning} & \textbf{Typical use}\\\hline
+\code{target <== message} & Now-type message: the caller waits for a reply. &
+Queries or computations whose result is needed immediately.\\
+\code{target <= message} & Past-type message: delivery is asynchronous. &
+Events, starting work, and actor-style pipelines.\\
+\code{target <= message @ reply} & Past-type message with an explicit
+reply destination. & Sending a later reply to a specified object.\\
+\end{longtable}
+
+\begin{lstlisting}
+; Query and wait for the result:
+[calculator <== [:square 9]]
+
+; Start work asynchronously:
+[router <= [:route :urgent "done"]]
+\end{lstlisting}
+
+A past-type message lets the sending computation continue without waiting
+for a reply. This raises practical questions: When is the work complete?
+In what order do messages arrive? How is shared state accessed?
+The protocol between your objects should answer these questions.
+
+\subsection{Explicit Reply Destinations and Continuations}
+
+A reply destination is itself an object.
+A continuation object is convenient for a short reply handler:
+
+\begin{lstlisting}
+[counter <= :get @ [cont value
+                  (format t "The counter is ~A~%" value)]]
+\end{lstlisting}
+
+The form \code{[cont pattern body]} is an efficient shorthand for an object
+with one script. Its body should finish quickly and predictably.
+Loops or additional now-type messages in continuation bodies may lead
+to deadlock.
+Its body is compiled as non-reifying code, so \code{reify-args} and
+\code{reify-args-to-meta} cannot be used there~\cite{guide}.
+These forms expose expressions and their execution context to a program;
+Section~\ref{sec:reflection} introduces that reflective access.
+For now, use continuations for short, ordinary reply processing.
+
+\input{tutorial/chapters/protocols}
+
+\section{A Complete Example: A Bank Account}
+\label{sec:account}
+
+The following object combines state, patterns, replies, and a simple
+invariant. It rejects withdrawals that would make the balance negative.
+
+\begin{codeblock}
+\begin{lstlisting}
+[object account
+  (state [balance := 0])
+  (script
+    (=> [:deposit amount]
+        (if (> amount 0)
+            (progn [balance := (+ balance amount)] !balance)
+            !:invalid-amount))
+    (=> [:withdraw amount]
+        (if (and (> amount 0) (>= balance amount))
+            (progn [balance := (- balance amount)] !balance)
+            !:rejected))
+    (=> :balance !balance))]
+
+[account <== [:deposit 100]]     ; => 100
+[account <== [:withdraw 30]]     ; => 70
+[account <== :balance]           ; => 70
+\end{lstlisting}
+\end{codeblock}
+
+\paragraph{Exercise 2.}
+Add a \code{[:transfer other amount]} handler. First check whether the
+withdrawal is possible, then send a deposit to \code{other}.
+Consider whether to use a now-type or past-type message, what should
+happen if the destination rejects the deposit, and when the transfer
+can be reported as complete.
+Compare your protocol with Section~\ref{sol:transfer}.
+
+\section{Concurrency as a Programming Model}
+
+A producer can send work to a consumer without waiting for an individual
+reply to each item:
+
+\begin{codeblock}
+\begin{lstlisting}
+[object consumer
+  (script
+    (=> [:item x]
+        (format t "Processed: ~A~%" (* x x))))]
+
+[object producer
+  (script
+    (=> :run
+        (progn
+          [consumer <= [:item 2]]
+          [consumer <= [:item 3]]
+          [consumer <= [:item 4]]
+          !:sent)))]
+
+[producer <== :run]
+\end{lstlisting}
+\end{codeblock}
+
+The three past-type messages are sent to \code{consumer}.
+The reply \code{:sent} confirms that the producer has sent the requests;
+it does not confirm that the consumer has completed them.
+Avoid relying on an assumed global execution order, especially with
+multiple senders. A clear protocol specifies both permitted messages
+and how completion is acknowledged.
+
+\paragraph{Exercise 3.}
+Give the consumer a state counter \code{n} that increases after each
+\code{:item}. Add a \code{:count} message that returns its current value.
+Experiment with querying the count while work is still outstanding.
+Then design an acknowledgment that tells the producer when all its
+items have been processed.
+Compare your completion condition with Section~\ref{sol:count}.
+
+\section{Creating and Organizing Objects}
+
+Objects can be created inside expressions. Start with an ordinary local object:
+
+\begin{lstlisting}
+(let ((prefix "[log]"))
+  [object local-logger
+    (script
+      (=> [:write text]
+          (format t "~A ~A~%" prefix text)))]
+  [local-logger <= [:write "start"]])
+\end{lstlisting}
+
+The object name is a binding in the surrounding environment.
+The object can use lexical variables from that environment.
+Because these variables are shared, take care when mutating them.
+
+A \emph{group} supplies an object-creation and execution policy for its
+members. It is not a class or a shared state container.
+An object normally uses its creation context's group; an explicit
+\code{(group manager)} selects another group manager. Groups and custom
+metaobject generators become important in Section~\ref{sec:reflection}.
+
+\begin{lstlisting}
+[group logging-group]
+[object logger-a (group logging-group) (script (=> :ping !:ok))]
+[object logger-b (group logging-group) (script (=> :ping !:ok))]
+(eq [group-of logger-a] logging-group)          ; => T
+(eq [group-of logger-a] [group-of logger-b])     ; => T
+(eq logger-a logger-b)                         ; => NIL
+\end{lstlisting}
+Here \code{group-of} returns the ordinary object's group manager.
+Sharing that manager does not make two objects identical or combine
+their state. Custom generators in the original projects must be read
+on their own terms; selecting a generator does not certify every
+introspection operation it might support.
+
+\section{Files, Libraries, and Tools}
+\label{sec:files}
+\input{tutorial/chapters/loading}
+
+\section{Futures and Express Messages}
+\label{sec:message-extensions}
+
+Future-type messages are a library feature. Load the library before
+using them:
+
+\begin{lstlisting}
+(require 'future)
+\end{lstlisting}
+
+Futures allow a result to be requested and consumed later, separating
+the request from the point at which the result is needed.
+See \filepath{lib/future.abclr2} and
+\filepath{examples/misc/future-ex.abclr2} for the specific syntax and examples.
+
+\input{tutorial/chapters/futures}
+
+\subsection{Express Messages}
+
+Express messages can preempt a script invoked by a normal message.
+They require the sender to use a suitable evaluator and the receiver
+to use a suitable metaobject generator. The \code{express} library
+provides these components. Once configured, the sending syntax is:
+
+\begin{lstlisting}
+[receiver <= message :express]
+[receiver <== message :express]
+\end{lstlisting}
+
+The documented purpose of \code{atomic} is to prevent express-message
+preemption while its subexpressions execute. The first experiment below
+studies routing to an idle receiver. Express messages are an advanced facility:
+first become comfortable with ordinary past-type and now-type messages.
+
+\input{tutorial/chapters/express}
+
+\section{Reflection and Hybrid Group Architecture}
+\label{sec:reflection}
+
+\subsection{What Reflection Adds}
+
+So far, our messages have been about application data: a balance, a job,
+or a value in a stream. \emph{Reflection} lets a program inspect and
+operate on representations of its own structure and execution.
+It is not merely another domain object or another name for inheritance.
+For example, an account's application protocol deposits money; a
+reflective protocol can inspect the environment holding its balance,
+the scripts available to it, or the evaluator executing those scripts.
+
+Call ordinary application activity the \emph{base level}.
+Activity that describes or controls it is at a \emph{meta-level}.
+These are roles in a relationship, not dedicated CPU threads.
+A \emph{metaobject} represents an individual object's execution machinery.
+An \emph{environment} represents bindings and lexical lookup.
+An \emph{evaluator} executes expression representations in an environment
+and context, reporting the result to a continuation.
+A \emph{scheduling policy} decides which pending work to run next;
+evaluation describes how an expression is executed. The two can interact:
+an evaluator object can queue requests and apply its own scheduling policy.
+Do not confuse that object with the host runtime's scheduling machinery.
+A \emph{metaobject generator} is a factory for metaobjects.
+A \emph{group manager} represents a group and participates in creation
+using that group's generator and evaluator.
+The evaluator, metaobject generator, and group manager are the group's
+\emph{kernel objects}.
+
+Two distinctions will keep the examples readable.
+First, changing the machinery that executes a script is different from
+changing the application's message payload.
+Second, replying to the application caller is different from reporting
+that an expression has finished executing.
+The original inheritance reading project makes both visible.
+
+\emph{Reification} exposes an execution representation for reflective
+computation. ABCL/R2 avoids eagerly constructing an
+infinite stack of such representations: higher levels are created lazily.
+Its \emph{partial compilation} compiles ordinary computations while
+keeping selected operations available through reflective protocols.
+The compiled representations passed to an evaluator are therefore not
+simply source strings to be re-read.
+A \emph{non-reifying} object's script is compiled for direct execution
+rather than this reflective expression interface; it cannot use
+\code{reify-args} or \code{reify-args-to-meta}. This does not prohibit
+ordinary messages to other objects' reflective interfaces: the breakpoint
+inspector later uses environment objects in exactly that way.
+These implementation techniques are explained in Masuhara's thesis and
+the distribution's compiler documentation~\cite{masuhara,guide}.
+
+An object definition can therefore contain additional parameters
+alongside \code{state} and \code{script}:
+
+\begin{codeblock}
+\begin{lstlisting}
+; Schematic: these kernel objects must be defined first.
+[object named-object
+  (meta-gen my-meta-generator)
+  (group my-group-manager)
+  (priority 10)
+  (script
+    (=> :hello !:ok))]
+\end{lstlisting}
+\end{codeblock}
+
+The interpretation of additional parameters depends on the chosen
+runtime objects; \code{priority} has no universal scheduling meaning.
+To explore a custom evaluator, study the files
+\filepath{express-ex.abclr2}, \filepath{built-ins.abclr2}, and
+\filepath{reify-args.abclr2} in \filepath{examples/misc/}.
+
+The special forms \code{reify-args} and \code{reify-args-to-meta}
+send compiled argument expressions, together with their evaluation
+context, to an evaluator or to the current object's metaobject,
+respectively. They are unavailable in scripts of non-reifying objects.
+
+This makes debugging, scheduling, resource management, and alternative
+evaluation strategies expressible as programs in the language.
+Reflection adds an abstraction level, so encapsulate it in small,
+well-understood libraries.
+
+\input{tutorial/chapters/reflection}
+
+\section{Troubleshooting and Good Practice}
+
+\begin{enumerate}
+  \item Test handlers that return results with now-type messages first.
+        Check that their patterns match and their replies are correct.
+  \item Then introduce past-type messages and specify when replies
+        and completion acknowledgments are expected.
+  \item Keep shared state in a responsible object rather than spreading
+        mutable lexical variables across many objects.
+  \item Use clear message tags, such as \code{:deposit},
+        \code{:withdraw}, and \code{:shutdown}.
+  \item After an error, this distribution may display a Lisp error message
+        and attempt to continue execution. Use \code{:reset} when the
+        session's state is unclear.
+  \item Build programs incrementally: objects, patterns, state,
+        asynchronous communication, and finally reflection.
+\end{enumerate}
+
+\input{tutorial/chapters/original-examples}
+
+\section{Final Project}
+\label{sec:project}
+
+Implement a small concurrent job service with three roles:
+\code{dispatcher}, \code{worker}, and \code{monitor}.
+
+\begin{enumerate}
+  \item The dispatcher accepts \code{[:run jobs]}, where each job is
+        \code{[id value]}, creates a batch monitor, and assigns each job
+        to a worker with \code{[:square id value]}.
+  \item Each worker computes a square or rejects an invalid value,
+        sending exactly one \code{[:done id status result]} to the monitor.
+  \item The monitor counts successful and failed jobs and sends
+        \code{[:report successful failed results]} to the original caller
+        once the batch is complete. Handle an empty batch explicitly.
+  \item Use past-type messages between actors and an explicit
+        reply destination for a completion acknowledgment.
+  \item Optional advanced extension: add a priority or express-message variant using an
+        appropriate library and compare it with ordinary message handling.
+\end{enumerate}
+
+This project brings together object definitions, pattern matching,
+state, replies, past-type and now-type messages, and concurrency.
+The worked solution below covers this ordinary-message protocol;
+the optional extension returns to reflective libraries and is not
+required to complete it.
+
+\input{tutorial/chapters/worked-project}
+
+\section{Further Reading in the Source Tree}
+
+This book is the primary user documentation for the current SBCL
+port. The historical documents below provide supplementary detail and
+background; their platform-specific installation instructions describe
+the original release, not the current build.
+
+\begin{itemize}
+  \item \filepath{historical/doc/users-guide-e}: reference for ABCL/R2-specific
+        forms and implementation restrictions.
+  \item \filepath{doc/Masuhara_1992.pdf}: Hidehiko Masuhara.\newline
+        \emph{Study on Implementation of an Object-Oriented Concurrent
+        Reflective Language}, University of Tokyo, February 1992.
+        Covers implementation, reflective towers, and lazy creation.
+  \item \filepath{examples/misc/}: small programs demonstrating futures,
+        express messages, built-in objects, and reflection.
+  \item \filepath{lib/}: library implementations to inspect and load.
+\end{itemize}
+
+\input{tutorial/chapters/reference}
+
+\clearpage
+\begin{thebibliography}{9}
+\bibitem{guide}
+Hidehiko Masuhara.
+\emph{ABCL/R2 User's Guide}.
+English translation, November 1992, with updates through July 1994.
+Included as \filepath{historical/doc/users-guide-e}.
+\bibitem{masuhara}
+Hidehiko Masuhara.
+\emph{Study on Implementation of an Object-Oriented Concurrent Reflective
+Language}. Senior thesis, University of Tokyo, February 6, 1992.
+Included as \filepath{doc/Masuhara_1992.pdf}.
+\bibitem{distribution}
+\emph{ABCL/R2 Distribution Readme and Installation Guide}.
+Included as \filepath{historical/doc/readme} and
+\filepath{historical/doc/install}, with the
+current root Makefile providing the SBCL build.
+\end{thebibliography}
+
+\end{document}

@@ -1,0 +1,51 @@
+;;; -*- Mode: Text -*-
+;;; Aug. 2,1992, MASUHARA,H.
+;;; Feb. 1,1993, update
+;;; Mar.27,1993, update
+
+--- Making & Using ABCL/R2 on Macintosh Common Lisp ---
+
+1. Introduction
+
+Current version of ABCL/R2 system can work on Macintosh Common Lisp
+(MCL) 2.0.  It may also work on Macintosh Allegro Common Lisp (which
+is the ancestor of MCL 2.0), but we have not fully tested.
+
+2. Making ABCL/R2
+
+To make ABCL/R2 system working, following instructions should be done.
+
+  2-1. Specify the location of source files according to your
+  environment.  This is done by editing some variables in
+  ":src:defabclr2.lsp".  For example, when you placed ABCL/R2 source
+  files on "Macintosh HD:work:abclr2", variables in "Macintosh
+  HD:work:abclr2:src:defabclr2.lsp" would be:
+  ------------------------------------------------------------------
+  (defvar *R2SYS-SOURCE-PATHNAME* "Macintosh HD:work:abclr2:src:")
+  (defvar *R2SYS-BINARY-PATHNAME* "Macintosh HD:work:abclr2:src:")
+  (defvar *R2SYS-DUMP-PATHNAME* "saved_abclr2")
+  (defvar *default-abclr2-library-pathnames*
+    (list "" "Macintosh HD:work:abclr2:lib:"))
+  ------------------------------------------------------------------
+
+  2-2. Load "defabclr2.lsp" in "src" subdirectory.
+
+  2-3. Evaluate "(build-and-dump)" at Listener.  This starts the
+  compilation of the source files.  After the finish of compilation, an
+  application named "saved_abclr2" is saved at MCL's home directory. 
+  (The name and place of the application can be changed by the value of
+  the variable *R2SYS-DUMP-PATHNAME*.)
+
+  2-4. Now ABCL/R2 system can be launched by simply double-clicking the
+  saved application.
+
+3. Using ABCL/R2
+
+In ABCL/R2 on MCL, almost all features are equal to the ones on other
+Lisp implementations.  One original feature on MCL version is: when
+CD, INC or COMP is evaluated without file-name, a file to be
+incorporated or compiled can be selected via Macintosh dialog.
+
+While your are editing an ABCL/R2 program, it may bother you to close
+parentheses accurately.  In such a case, file ":tips:paren.lisp" might
+help you.

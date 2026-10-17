@@ -1,0 +1,59 @@
+;;; Time Warp: undoable environment
+;;; Feb. 12, 1992 by MASUHARA, H.
+
+[object undoable-env-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new initialLocalFrame LexEnv]
+       ![object env
+	  (meta-gen non-reifying-meta)
+	  (state [oldLocalFrames := nil]
+		 [localFrame := initialLocalFrame]
+		 [currentTime := 0])
+	  (script
+	   (=> [:push nextTime]
+	       [oldLocalFrames
+		:= (cons (cons nextTime localFrame)
+			 oldLocalFrames)]
+	       [localFrame
+		:= (mapcar #'(lambda (pair) (cons (car pair) (cdr pair)))
+			   localFrame)]
+	       [currentTime := nextTime])
+	   (=> [:rollback-to Time]
+	       (temporary [tmp := nil])
+               #+COMMENT
+	       (format t "~&env:rollback: current=~S old=~S"
+		       localFrame oldLocalFrames)
+	       [tmp := (backFrame Time oldLocalFrames)]
+	       [oldLocalFrames := (cdr tmp)]
+	       [currentTime := (caar tmp)]
+	       [localFrame := (cdar tmp)]
+               #+COMMENT
+	       (format t "~&###Back to ~D by ~D~
+                          ~&###~S" currentTime Time
+		       localFrame)
+	       !currentTime)
+	   (=> :show
+	       ![:old oldLocalFrames :current initialLocalFrame
+		      :time currentTime])
+	   (=> [:value-of Name] @ R
+	       ;; (format t "~&UNDO-ENV: ref ~S" Name)
+	       (let ((p (assoc Name LocalFrame :test #'eq)))
+		 (if p [R <= (cdr p)]
+		     [LexEnv <= [:value-of Name] @ R])))
+	   (=> [:set Name Value] @ R
+	       ;; (format t "~&UNDO-ENV: set ~S to ~S" Name Value)
+	       (let ((p (assoc Name LocalFrame :test #'eq)))
+		 (if p 
+		     (progn (setf (cdr p) Value)
+			    [R <= Value])
+		     [LexEnv <= [:set Name Value] @ R])))
+	   (=> [:boundp Name] @ R
+	       (if (assoc Name LocalFrame :test #'eq)
+		   [R <= t]
+		   [LexEnv <= [:boundp Name] @ R])))]))]
+
+(defun backFrame (Time Frames)
+  (member-if #'(lambda (Frame) (< (first Frame) Time))
+			  Frames))
+   

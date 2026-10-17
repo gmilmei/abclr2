@@ -1,0 +1,30 @@
+
+(defun guard-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&GUARD-PASS ~A~%" name)
+  (error "GUARD-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/guard-tests/lib/heavy-meta" :use-source t)
+(inc "@ROOT@/build/guard-tests/original-counter" :use-source t)
+
+(guard-check "initial" [counter <== [:value]] 0)
+@GUARD-ORIGINAL-SESSION@
+
+(guard-check "original-session" [counter <== [:value]] 123)
+[counter <= [:add 0]]
+(guard-check "zero-rejected" [counter <== [:value]] 123)
+[counter <= [:add -1]]
+(guard-check "negative-rejected" [counter <== [:value]] 123)
+[counter <= [:add 7]]
+(guard-check "positive-added" [counter <== [:value]] 130)
+[counter <= [:add "7"]]
+(guard-check "noninteger-rejected" [counter <== [:value]] 130)
+[counter <= [:reset]]
+(guard-check "reset" [counter <== [:value]] 0)
+(guard-check "state-binding" [[[meta counter] <== :state] <== [:value-of 'c]] 0)
+[scripts := [[meta counter] <== :scripts]]
+(guard-check "guard-expression-present" (not (null [(first scripts) <== :where-exp])) t)
+(guard-check "fallback-has-no-guard" [(second scripts) <== :where-exp] nil)
+(guard-check "lookup-is-structural" [[meta counter] <== [:find-script [:add -1]]] (first scripts))
+
+(format t "~&GUARD-END~%")
+:q

@@ -1,0 +1,42 @@
+
+(defun break-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&BREAK-PASS ~A~%" name)
+  (error "BREAK-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/break-tests/break" :use-source t)
+@BREAK-DEFINITION@
+(break-check "edited-temporary" [foo <== 123] 999)
+:l
+z
+:u
+:l
+y
+:u
+:l
+:set
+x
+10
+:d
+:d
+:set
+z
+999
+:r
+0
+(break-check "persistent-state" [[[meta foo] <== :state] <== [:value-of 'x]] 10)
+(break-check "next-invocation" [foo <== 123] 133)
+:r
+t
+(break-check "third-invocation" [foo <== 123] 133)
+:a
+missing-break-binding
+:h
+:r
+nil
+[object break-result (script (=> :run !(abclr2-break "~A" "probe")))]
+(break-check "raw-return-data" [break-result <== :run] '(+ 1 2))
+:r
+(+ 1 2)
+(break-check "state-still-ten" [[[meta foo] <== :state] <== [:value-of 'x]] 10)
+(format t "~&BREAK-END~%")
+:q

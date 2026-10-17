@@ -1,0 +1,86 @@
+;;; -*- Mode: ABCL1 -*-
+;;; user-script.abclr2
+;;; An example for user defined script.
+;;; Jul. 29, 1992 by MASUHARA, H.
+;;; Aug. 27. 1992 bug fix; monkey-script replies nil to unknown messages
+;;; Dec. 14, 1994 some modification for where fields
+
+[object Monkey
+  (script
+   (=> any @ tease
+       [tease <= "Scratch!"]) ;; by default it knows only to scratch...
+   )]
+
+[object Monkey-Showman
+  (script
+   (=> :try @ R
+       [Monkey <= :play-trick
+	       @ R]))]
+
+[object Poor-Audience
+  (script
+   (=> :try @ R
+       [Monkey <= :play-trick
+	       @ R]))]
+
+;; The user defined script for the object monkey.
+[object monkey-script
+  (script
+   ;; User defined script objects must have following two scripts:
+   ;; [:match Message Reply Sender] : request for pattern matching
+   ;; Note: script object MUST reply any messages in above pattern
+   ;; regardless of the result of matching.
+   (=> [:match :play-trick Reply Sender]
+       ;; This script tests whether the sender is his boss.
+       (if (eq Sender Monkey-Showman)
+	   ;; Return value is either: (1) A list whose first element is
+	   ;; a binding information and second one is expression that
+	   ;; can be executed by evaluator with [:do ...] form.
+	   ;; The binding information is list of binding cons-cells,
+	   ;; whose car-part is symbol and cdr-part is value. This
+	   ;; type of reply implies the success of the matching.
+	   ![ [ ['R . Reply] ]		; list of binding
+	      [:script Me] ]		; executable expression
+	   ;; (2) Nil; this means the fail of the matching.
+	   !nil))
+   (=> [:match other-message-pattern Reply Sender]
+       ;; Other kind of messages are not matched; nil is replied.
+       !nil)
+   ;; [:exec Env Id Gid Eval] @ C : request for script execution
+   ;; under the given context <Env, Id, Gid, Eval>. Some value
+   ;; should be returned to the reply destination C when the execution
+   ;; terminates.
+   (=> [:exec Env Id Gid Eval] @ C
+       ;; This script object first looks up the reply destination (which
+       ;; is bound to variable R in the given environment).
+       ;; Then, it sends a message directly to the reply destination
+       ;; without using given Evaluator.
+       [Env <= [:value-of 'R]
+	    @ [cont Reply-dest
+		    [Reply-dest <= "Hansei" ]]] ; well-known trick !?
+       ;; After the execution specified above, this script object sends
+       ;; Nil to the reply destination C.  This message notifies the
+       ;; end of the script execution.  Note that C is not the reply
+       ;; destination of the message to object Monkey, but the one of
+       ;; (metalevel) message to this script object.
+       [C <= nil])
+   ;; User defined script objects may have following two scripts.
+   ;; These scripts may be used by debugger for inspection.
+   (=> :pattern ![:play-trick 'Reply 'Sender])
+   (=> :body ![[:script Me]])
+   (=> :where-exp !nil)
+   )]
+
+#|
+;; At first, anyone is scratched.
+[Monkey-Showman <== :try]
+[Poor-Audience <== :try]
+
+;; add user-defined script to the object monkey.
+[[meta Monkey] <= [:add-script monkey-script]]
+
+;; By teaching a trick (i.e., installing the user-defined script
+;; to the Monkey object), the Monkey-Showman is no longer scratched.
+[Monkey-Showman <== :try]
+[Poor-Audience <== :try]
+|#

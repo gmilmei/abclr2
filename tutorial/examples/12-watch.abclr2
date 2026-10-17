@@ -1,0 +1,26 @@
+;; Supplemental senders for the unchanged watch and future libraries.
+(inc-lib "lib/watch" :use-source t)
+(inc-lib "lib/future" :use-source t)
+
+[object watch-target (script (=> value !value))]
+
+[object watch-driver
+ (script
+  (=> [:now value] ![watch-target <== value])
+  (=> [:past value] [watch-target <= value] !:submitted)
+  (=> [:future value]
+      (temporary [replies := (make-future)])
+      [watch-target <= value $ replies]
+      !(next-value replies)))]
+
+[object watch-recorder
+ (state [events := nil])
+ (script
+  (=> :events !(reverse events))
+  (=> :reset [events := nil] !:reset)
+  (=> [type args context continuation]
+      [events := (cons (list type args context continuation) events)]))]
+
+(defun watch-target-events (events target)
+ (remove-if-not #'(lambda (event) (eq (first (second event)) target))
+                events))

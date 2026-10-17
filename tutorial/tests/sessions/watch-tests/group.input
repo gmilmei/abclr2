@@ -1,0 +1,24 @@
+(defun watch-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&WATCH-PASS ~A~%" name)
+  (error "WATCH-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/watch-tests/12-watch" :use-source t)
+[group watch-demo-group]
+[original := [watch-demo-group <== :evaluator]]
+[object before-watch (group watch-demo-group) (script (=> value ![watch-target <== value]))]
+[watch-manager <= [:watch-group watch-demo-group watch-recorder]]
+[wrapper := [watch-demo-group <== :evaluator]]
+[object during-watch (group watch-demo-group) (script (=> value ![watch-target <== value]))]
+(watch-check "existing-object-keeps-evaluator" [[meta before-watch] <== :evaluator] original)
+(watch-check "new-object-captures-wrapper" [[meta during-watch] <== :evaluator] wrapper)
+[before-watch <== 1]
+(watch-check "existing-object-untraced" [watch-recorder <== :events] nil)
+[during-watch <== 2]
+(watch-check "new-object-traced" (length (watch-target-events [watch-recorder <== :events] watch-target)) 1)
+(nowatch-group watch-demo-group)
+(watch-check "group-restored" [watch-demo-group <== :evaluator] original)
+(watch-check "existing-wrapped-object-not-restored" [[meta during-watch] <== :evaluator] wrapper)
+[object after-watch (group watch-demo-group) (script (=> value ![watch-target <== value]))]
+(watch-check "later-object-uses-restored-policy" [[meta after-watch] <== :evaluator] original)
+(format t "~&WATCH-END~%")
+:q

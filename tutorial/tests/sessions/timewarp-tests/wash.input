@@ -1,0 +1,15 @@
+
+(defun tw-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&TW-PASS ~A~%" name)
+      (error "TW-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "tw-load" :use-source t)
+[result := [starter <== [:start [3 4 6] 3]]]
+(tw-check "priority-tag" (first result) :priori)
+(tw-check "fifo-tag" (fourth result) :fifo)
+(tw-check "priority-count-valid" (and (eq (first (second result)) :rollback) (integerp (second (second result))) (>= (second (second result)) 0)) t)
+(tw-check "fifo-count-valid" (and (eq (first (fifth result)) :rollback) (integerp (second (fifth result))) (>= (second (fifth result)) 0)) t)
+
+(format t "~&TW-END~%")
+:q

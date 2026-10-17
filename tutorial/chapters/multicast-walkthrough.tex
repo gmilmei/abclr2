@@ -1,0 +1,204 @@
+\subsection{Multicast: One Request, a Structured Result}
+\label{sec:multicast}
+
+An ordinary send has one receiver. The original \filepath{lib/multicast.abclr2}
+adds a library-defined operation: send the same message to every object in
+a target tree, and optionally reconstruct a tree of replies. This is not
+network multicast, a transaction, or the unsupported brace-delimited send
+syntax. Its targets are ordinary ABCL/R2 objects in Lisp cons structures.
+Where guards changed the receiving object's script selection, multicast
+changes how the sender's evaluator interprets a target. Keep the future
+reply-stream model and the evaluator context from earlier sections in mind.
+
+\subsubsection{Replay the Original Library Example}
+
+The library ends with a commented example, rather than a separate file in
+\filepath{examples/}. Its three objects are:
+
+\wholelisting[firstline=173,lastline=183]{lib/multicast.abclr2}
+
+In a fresh session at the repository root, load the library, wrap the
+top-level evaluator, enter those definitions, and replay the original send:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc-lib "lib/multicast" :use-source t)
+[*eval* := [multicast-eval-gen <== [:new *eval*]]]
+; Enter the original twice, square, and identity definitions above.
+[[twice square identity] <== 12]
+; => (24 144 12)
+\end{lstlisting}
+\end{codeblock}
+
+The bracket expression \code{[twice square identity]} constructs a list
+of three object values. Each receives 12: \code{twice} returns 24,
+\code{square} returns 144, and \code{identity} returns 12. The result list
+uses the targets' positions, not the order in which replies arrive.
+The same top-level installation is documented in the user's guide~\cite{guide}.
+Loading the library alone only defines its machinery; it does not enable
+list-valued targets in every evaluator.
+
+\subsubsection{Follow the Shape, Not Just the Values}
+
+Try a target tree containing both objects and literal data:
+
+\begin{codeblock}
+\begin{lstlisting}
+[[twice [square :label] identity nil] <== 12]
+; => (24 (144 :LABEL) 12 NIL)
+[[twice twice] <== 3]                  ; => (6 6)
+\end{lstlisting}
+\end{codeblock}
+
+Only object leaves receive the message. The keyword \code{:label} and
+\code{nil} are retained as data; they are not receivers. Repeating an
+object creates two target occurrences and two sends, not a deduplicated
+recipient set. Each occurrence has its own result position.
+
+The host Lisp function \code{pickup-target-objects} recursively walks
+\code{car} and \code{cdr}. It constructs a fresh cons template with
+\code{nil} in every object position, and records each object with a path
+into that template. For the nested example:
+
+\begin{longtable}{L{0.21\textwidth}L{0.37\textwidth}L{0.32\textwidth}}
+\textbf{Receiver} & \textbf{Path from the template root} & \textbf{Stored reply}\\\hline
+\code{twice} & \code{(:car)} & 24\\
+\code{square} & \code{(:cdr :car :car)} & 144\\
+\code{identity} & \code{(:cdr :cdr :car)} & 12\\
+\end{longtable}
+
+The template is \code{(nil (nil :label) nil nil)}. A path is a sequence
+of operations: \code{(:cdr :car :car)} means take the outer tail, its
+first nested list, and that list's first cell. The function builds its
+target records with \code{push}, so their order is reversed relative to
+the traversal. That does not change the reconstructed result.
+\code{store-returned-value} follows a path and updates the final
+\code{car} or \code{cdr} with \code{setf}.
+
+This is a cons-tree walk, not arbitrary container traversal. A dotted
+pair of object targets also works: \code{(cons twice square)} with message
+3 yields \code{(6 . 9)}. Arrays are not recursively decomposed.
+Use finite, acyclic target trees. A receiver that sends \code{!nil}
+has replied; a \code{nil} result is not the same as a missing reply.
+
+\subsubsection{Separate Submission from the Aggregate Reply}
+
+The evaluator wrapper intercepts two ordinary send representations:
+
+\wholelisting[firstline=134,lastline=143]{lib/multicast.abclr2}
+
+For a nonempty cons target, a now-type request sends the evaluator's
+continuation \code{C} as the aggregate reply destination. A past-type
+request instead supplies its explicit application destination \code{Reply},
+and preserves \code{C} separately as the submission continuation.
+Single-object targets and other evaluator requests are forwarded to
+\code{original-eval}. Future-type sends and extended send representations
+are not intercepted by these two patterns; do not assume that every
+extension composes automatically with multicast.
+
+Read the \code{multicaster} handler in this order:
+
+\begin{enumerate}[nosep]
+  \item Decompose the target tree into template and object/path records.
+  \item Send \code{nil} to its own continuation \code{C}, if present.
+        This is submission progress, not a collected application result.
+  \item Without an aggregate destination, send the payload to each object
+        and collect nothing.
+  \item Otherwise create one collector, initialize it with the template,
+        target count, and aggregate destination, then send to each object
+        with a position-specific reply receiver.
+\end{enumerate}
+
+\code{partial-value-receiver-gen} creates a \code{cont} object for each
+position. An application reply becomes \code{[:result value position]}
+to the collector. Notice another forwarding effect: the target's sender
+binding is \code{multicaster}, not the original application client.
+Sender-sensitive scripts must take this into account.
+
+\subsubsection{Put a Multicast Client in Its Own Group}
+
+The supplemental \filepath{tutorial/examples/10-multicast.abclr2}
+keeps this policy local to a client group instead of replacing the
+interactive evaluator:
+
+\wholelisting[firstline=4,lastline=17]{tutorial/examples/10-multicast.abclr2}
+
+The targets may remain ordinary objects: it is the \emph{sender's}
+evaluator that interprets a list-valued target. The internal
+\code{r2sys::create-primary-eval} helper is the same implementation-specific
+helper used earlier. In a fresh session, enter the original three object
+definitions, then load the supplemental file:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "tutorial/examples/10-multicast" :use-source t)
+[multicast-client <== [:now [twice square] 3]]
+; => (6 9)
+[multicast-client
+ <== [:past [twice square] 3 multicast-inbox]]
+; => :SUBMITTED
+[multicast-inbox <== :status]           ; => (1 (6 9))
+\end{lstlisting}
+\end{codeblock}
+
+The inbox stores an arrival count and the last aggregate. Inspect its
+short definition in the supplemental file. \code{:submitted} is the
+client handler's reply to the interactive caller; \code{(6 9)} travels
+separately to the inbox. The submission reply does not acknowledge that
+every recipient has finished. The checked session observes the aggregate
+after the finite sends have run; it does not establish an arrival-time
+guarantee for other schedules.
+
+For an existing group, the original \code{multicast-installer} accepts
+\code{[:install group-manager]} as a past-type request. The manager must
+support \code{:replace-evaluator}. Install before creating clients that
+will use multicast: replacing a group's evaluator does not automatically
+rewrite every existing object's captured evaluator. The guide's
+\code{*eval*} assignment is the explicit top-level alternative.
+
+\subsubsection{Know What the Collector Can and Cannot Promise}
+
+The essential collector handlers are:
+
+\wholelisting[firstline=72,lastline=82]{lib/multicast.abclr2}
+
+Initialization stores the template, remaining-result count, and reply
+destination. Here \code{C} names the numeric count, not the evaluator
+continuation used earlier; \code{R} is the aggregate destination.
+Each \code{:result} stores a value and decrements the count.
+Only the transition to zero sends the aggregate. This assumes
+\emph{exactly one reply per target occurrence}.
+
+A nonempty target list with no object leaves initializes a count of zero,
+but initialization sends no aggregate. A silent recipient leaves the
+count above zero. Neither case has a library timeout or failure result;
+a now-type caller cannot obtain the missing aggregate. An empty list is
+\code{nil}, not a cons, so it does not enter the multicast branch at all.
+Use a nonempty set of object recipients for collected requests, and make
+each recipient's one-reply contract explicit.
+
+The collector does not remember which positions have already replied.
+A controlled probe initializes two positions, supplies two results for
+the first position, and observes a premature \code{(9 nil)} aggregate.
+A later result for the second position mutates that same delivered list
+to \code{(9 10)} without a second aggregate message. These are observed
+protocol limits, not a supported duplicate-delivery or retry mechanism.
+Do not use a multi-reply stream producer as a one-reply multicast recipient.
+For fire-and-forget sends, replies are not collected and there is no
+aggregate completion acknowledgment.
+
+\paragraph{Evidence and exercise.}
+Run \code{make -C tutorial multicast-check}. Twenty-four checks replay
+the original commented session and test nested/dotted targets, duplicate
+occurrences, \code{nil} replies, sender identity, group setup, explicit
+reply routing, fire-and-forget effects, and the collector boundaries above.
+The runner extracts original lines 171--185 and copies the library
+byte-for-byte; inputs and transcripts stay in \filepath{build/multicast-tests/}.
+No original source or runtime is patched.
+
+Why does \code{:label} survive in the result? It occupies a literal
+template position rather than an object position. Why are two instances
+of \code{twice} not merged? Positions, not distinct identities, define
+the requests. As an exercise, add a one-reply negation object to a nested
+target tree, predict the template and paths, then compare the collected
+result. Keep the original library unchanged.

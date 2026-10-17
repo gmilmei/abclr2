@@ -1,0 +1,10 @@
+(defun tutorial-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&CHECK-PASS ~A~%" name)
+      (error "CHECK-FAIL ~A: got ~S, expected ~S" name actual expected)))
+(inc "build/tutorial-tests/04-futures" :use-source t)
+(tutorial-check "04-futures-1" [range-client <== [:collect 1 4]] '(1 2 3 4))
+(tutorial-check "04-futures-2" [range-client <== [:collect 3 2]] nil)
+(tutorial-check "04-futures-3" [range-client <== [:collect 7 7]] '(7))
+(tutorial-check "04-futures-4" (let ((f (make-future))) [range-server <= [:range 8 8] $ f] (list (next-value f :remove nil) (next-value f) (next-value f) (ready? f))) '(8 8 :done nil))
+:q

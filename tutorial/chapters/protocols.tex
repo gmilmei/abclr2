@@ -1,0 +1,47 @@
+\subsection{Forwarding a Reply Without Waiting}
+
+The \code{@ R} field in a script header binds the current reply destination.
+It is different from an argument in the message payload.
+This forwarding object keeps the original caller's destination:
+
+\sourcelisting[firstline=32]{tutorial/examples/01-basics.abclr2}
+
+\begin{lstlisting}
+[forwarder <== [:square 8]]     ; => 64
+\end{lstlisting}
+
+The caller waits on the forwarder, but the forwarder's handler does not
+wait on the calculator. It sends a past-type message with \code{@ R}.
+The calculator's reply then goes directly to the original caller.
+Do not add an extra \code{!} to this handler: that would send a second reply.
+This style is useful when an object coordinates work but does not need
+the result itself.
+
+\subsection{Object Identity and the Current Object}
+
+Inside a script, \code{Me} denotes the current object.
+A handler can send a message to itself using \code{[Me <= message]},
+usually to arrange work after the current handler finishes.
+Under the ordinary metaobject, a handler is processed to completion before
+another normal handler for that object begins. This remains true when
+the current handler is suspended waiting on a now-type reply.
+
+Consequently, a now-type message to the same ordinary object can deadlock:
+the current handler waits for a reply from a handler that cannot begin.
+The same problem arises in a cycle: object A waits on B while B waits on A.
+Use forwarding or a later past-type phase to break that wait cycle.
+Ordinary queue serialization protects the object's handlers from overlapping;
+it does not make operations on several objects into one transaction.
+A \emph{join} waits for the notifications required by an application
+protocol, such as both children's answers, before continuing. It does
+not mean that every object or host thread has stopped.
+
+\subsection{Concurrency and Parallel Hardware}
+
+Independent objects can be logically concurrent even when the host executes
+one computation at a time. The supplied runtime has a scheduling queue
+in \filepath{src/process.lsp}; its existence does not imply that an object
+is mapped to a dedicated operating-system thread or CPU.
+Long computations in a host Lisp function can also delay other work.
+Use the word \emph{concurrency} for the protocol model, and measure the
+particular runtime before making claims about parallel speedup.

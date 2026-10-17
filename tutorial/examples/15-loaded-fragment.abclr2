@@ -1,0 +1,2 @@
+[loaded-value := load-token]
+[object loaded-object (script (=> :value !load-token))]

@@ -1,0 +1,11 @@
+(defun copy-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&COPY-PASS ~A~%" name)
+  (error "COPY-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/copy-tests/lib/copy" :use-source t)
+(inc "@ROOT@/build/copy-tests/original-fib" :use-source t)
+(copy-check "original-fib-zero" [fib <== 0] 0)
+@COPY-ORIGINAL-SESSION@
+(copy-check "original-fib-five" [fib <== 5] 5)
+(format t "~&COPY-END~%")
+:q

@@ -1,0 +1,48 @@
+(inc-lib "lib/future" :use-source t)
+
+[object sum-of-squares
+ (script
+  (=> [:sum values]
+      (temporary [total := 0])
+      (dolist (x values)
+        [total := (+ total (* x x))])
+      !total))]
+
+[object counted-producer
+ (script
+  (=> [:run values]
+      (temporary
+       [consumer := [object
+                      (state [n := 0])
+                      (script
+                       (=> [:item x] [n := (+ n 1)] !n)
+                       (=> :count !n))]]
+       [replies := (make-future)])
+      (dolist (x values)
+        [consumer <= [:item x] $ replies])
+      (dotimes (i (length values))
+        (next-value replies))
+      ![consumer <== :count]))]
+
+[object square-stream
+ (script
+  (=> [:range first last]
+      (do ((i first (+ i 1)))
+          ((> i last))
+        ![:value (* i i)])
+      !:done))]
+
+[object square-stream-client
+ (script
+  (=> [:collect first last]
+      (temporary [stream := (make-future)]
+                 [items := nil]
+                 [message := nil])
+      [square-stream <= [:range first last] $ stream]
+      [message := (next-value stream)]
+      (do ()
+          ((eq message :done))
+        (match message
+          (is [:value x] [items := (cons x items)]))
+        [message := (next-value stream)])
+      !(reverse items)))]

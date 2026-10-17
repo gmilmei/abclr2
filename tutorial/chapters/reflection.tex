@@ -1,0 +1,178 @@
+\subsection{Two Reflective Towers, Two Kinds of Control}
+
+The Hybrid Group Architecture distinguishes reflection on an individual
+object from reflection on the group in which objects execute.
+Masuhara's thesis, Section 3.3, develops this distinction~\cite{masuhara}.
+
+\begin{longtable}{L{0.26\textwidth}L{0.32\textwidth}L{0.32\textwidth}}
+\textbf{Level} & \textbf{What it controls} & \textbf{Example}\\\hline
+Individual metaobject & The object's state environment, scripts, and
+normal message queue. & Inspect a counter's state or change its evaluator.\\
+Group kernel objects & Shared evaluation and object creation policy. &
+Give a group a custom evaluator for a new control form.\\
+Higher meta-levels & The corresponding behavior of metaobjects and
+meta-groups. & Reflect on the evaluator itself.\\
+\end{longtable}
+
+This conceptual hierarchy is not allocated as an infinite collection
+of objects. Chapter 4 of the thesis explains lazy creation and lightweight
+metaobjects: forwarding an ordinary message should not force expensive
+reification. Section 4.7 discusses non-reifying objects; Chapter 7
+summarizes the use of partial compilation~\cite{masuhara}.
+Sequential host computations can be compiled while selected operations
+still pass through the reflective protocols.
+
+\subsection{Inspecting an Object's State}
+
+Load the reflection example in a fresh session:
+
+\begin{lstlisting}
+(inc "tutorial/examples/05-reflection" :use-source t)
+[observed-counter <== :inc]                  ; => 1
+[[[meta observed-counter] <== :state]
+ <== [:value-of 'n]]                         ; => 1
+[[[meta observed-counter] <== :state]
+ <== [:set 'n 40]]                           ; => 40
+[observed-counter <== :inc]                  ; => 41
+\end{lstlisting}
+
+The steps are significant. \code{[meta observed-counter]} obtains the
+counter's metaobject. The \code{:state} query returns an environment
+object, not a plain property map. Sending \code{[:value-of 'n]} to that
+environment retrieves a binding; \code{[:set 'n 40]} changes it.
+The quoted symbol is the variable's name as data.
+The next ordinary increment observes that change: the meta-level
+representation is connected to the computation it describes.
+
+This bypasses the object's application protocol. Use it to understand
+reflection and debugging; ordinary clients should continue to use
+the counter's defined messages. Default metaobjects also answer
+\code{:scripts}, \code{:queue}, and \code{:evaluator}.
+Their precise replies are runtime objects or internal queue entries.
+The operation \code{[den metaobject]} returns the associated lower-level
+object, called its \emph{denotation}. It is not a copy or a variable's
+value. In the original inheritance project we will check both identity
+directions and distinguish this relationship from group membership.
+
+\subsection{Defining a Lazy Control Form}
+
+An ordinary function evaluates its arguments before receiving them.
+A control form must instead decide which expression to evaluate.
+The next example implements a choice using the group's evaluator:
+
+\wholelisting[linerange={9-18,25-26}]{tutorial/examples/05-reflection.abclr2}
+
+The new evaluator handles the \code{:choose} protocol and forwards all
+other messages to a primary evaluator. The internal helper
+\code{r2sys::create-primary-eval} matches the helper used by the
+repository's examples; it is specific to this implementation.
+Inside a group definition, \code{group} names the group being constructed.
+
+The expression variables \code{predicate}, \code{then}, and \code{else}
+contain compiled expression representations. They are not ordinary
+argument results. The \code{[:do expression Env Id Gid Eval]} protocol
+asks the evaluator to execute one representation in its original context.
+Read the context fields by role, not as application arguments:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{longtable}{L{0.13\textwidth}L{0.77\textwidth}}
+\textbf{Field} & \textbf{Meaning in this evaluation request}\\\hline
+\code{Env} & Environment used for variable lookup.\\
+\code{Id} & Metaobject identity of the object whose expression is being
+executed; evaluating \code{Me} produces \code{[den Id]}.\\
+\code{Gid} & Group manager for that execution context; evaluating
+\code{group} produces this value.\\
+\code{Eval} & Evaluator used for the expression's evaluation operations.\\
+\code{C} & Continuation receiving this expression's result, not
+necessarily the application's original caller.\\
+\end{longtable}
+\end{minipage}
+
+When a metaobject's own handler executes, \code{Me} is that metaobject,
+not the application object it manages. Likewise, \code{Gid} is not
+automatically the group of \code{Id}: a metaobject belongs to a group
+at its own level. Keep object, metaobject, and group relationships separate.
+
+The first send evaluates the predicate. Its continuation selects
+one branch representation and forwards the final destination \code{C}.
+No unselected branch is evaluated.
+
+\sourcelisting[linerange={28-36,41-41}]{tutorial/examples/05-reflection.abclr2}
+
+\begin{codeblock}
+\begin{lstlisting}
+[choice-test <== [:choose 3]]   ; => 2
+[choice-test <== :selected]     ; => :ODD
+[choice-test <== [:choose 8]]   ; => 4
+[choice-test <== :selected]     ; => :EVEN
+\end{lstlisting}
+\end{codeblock}
+
+The current evaluator receives compiled argument expressions through
+\code{reify-args}. The corresponding form for the current object's
+metaobject is \code{reify-args-to-meta}. Both preserve the evaluation context,
+and neither is available in a non-reifying object's script.
+This example uses a reflective control form to add behavior; it does
+not change the meaning of the ordinary \code{if} operator.
+
+The tag supplied to \code{reify-args} is evaluated first. The remaining
+argument expressions are passed as compiled representations in a message
+of the form \code{[Tag Expressions Env Id Gid Eval] @ C}; they have
+not already been reduced to argument values~\cite{guide}.
+
+\paragraph{Exercise 5.}
+Extend the choice group with a \code{:unless} protocol that evaluates
+one body only when its predicate is false. Forward the final result
+to the original continuation in both cases.
+Check both branches against Section~\ref{sol:unless}.
+
+\subsection{Extension Parameters and Host Events}
+
+The user's guide identifies additional parameters on message transmission,
+object creation, and assignment as extension points~\cite{guide}.
+They carry information to the execution machinery; they are not extra
+elements of the application's message payload. For example, in the
+schematic send \code{[target <= payload @ reply :RVT stamp]}, the
+evaluator representation is
+\code{[:send-past Target Payload Reply :RVT Stamp]}.
+Capitalized names here denote evaluated values.
+It is the selected evaluator's responsibility to interpret this extension.
+An ordinary receiver still receives \code{Payload}.
+
+Likewise, \code{(priority n)} in an object definition becomes a
+\code{:priority} argument in its creation representation, rather than
+automatically creating a state variable or a universal scheduling rule.
+The priority-control examples supply machinery that gives this parameter
+meaning. An extended assignment \code{[x := value tag argument]}
+passes the evaluated extras to the environment's \code{:set} request.
+Custom environment objects can therefore participate in update policy.
+Do not assume the default environment acts on an arbitrary tag.
+
+Two library facilities illustrate this principle without extending the
+core syntax. Script-pattern \code{where} constraints require
+\code{heavy-meta}; constraints inside an ordinary \code{match} form
+remain unsupported. Multicast requires \code{multicast} and a suitable
+evaluator created by \code{multicast-eval-gen}; merely loading the
+library does not replace every object's evaluator.
+The original \filepath{lib/multicast.abclr2} constructs a template for
+nested target lists and collects replies into their corresponding
+positions. This is a library-defined protocol, not the unsupported
+brace-delimited synchronous-send form.
+Section~\ref{sec:multicast} works through its original example and reply paths.
+These libraries need their own setup and reply/completion analysis,
+just as the express library does.
+
+The guide also describes a boundary for host events~\cite{guide}.
+At Lisp level, \code{r2sys:send-signal} delivers its arguments as a
+\code{[:signal ...]} message to the object bound to
+\code{*signal-handler*}. The default handler ignores events; a
+\code{nil} handler disables delivery.
+Alternatively, the host can set \code{r2sys:*signal-request*};
+the runtime checks and clears it before forwarding the request.
+This is a single pending-request slot, not a general event queue.
+The ABCL side handles an event as a message. It does not follow that
+every operating-system signal or timer is automatically connected to
+this interface: that requires host-specific integration.
+The interface also does not promise express preemption.
+
+\input{tutorial/chapters/host-events}

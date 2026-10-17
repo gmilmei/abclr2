@@ -1,0 +1,23 @@
+(defun watch-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&WATCH-PASS ~A~%" name)
+  (error "WATCH-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/watch-tests/12-watch" :use-source t)
+[original := *eval*]
+[watch-manager <= [:watch-toplevel watch-recorder]]
+(watch-check "toplevel-wrapped" (eq *eval* original) nil)
+(watch-check "toplevel-original-query" [*eval* <== :original-evaluator] original)
+[watch-target <== :top-probe]
+[events := (watch-target-events [watch-recorder <== :events] watch-target)]
+(watch-check "toplevel-payload" (second (second (first events))) :top-probe)
+(nowatch-toplevel)
+(watch-check "toplevel-restored" *eval* original)
+[watch-recorder <== :reset]
+[watch-target <== :untraced]
+(watch-check "toplevel-no-events-after-disable" [watch-recorder <== :events] nil)
+(watch-toplevel)
+(watch-check "public-toplevel-install" (eq *eval* original) nil)
+(nowatch-toplevel)
+(watch-check "public-toplevel-restore" *eval* original)
+(format t "~&WATCH-END~%")
+:q

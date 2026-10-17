@@ -1,0 +1,78 @@
+\section{Original Source Reading Map}
+\label{sec:source-map}
+
+This map covers all 34 original example files and nine library files.
+Each entry points to the explanation of its role in a complete example,
+not necessarily to a separate runnable program. Start with the linked
+application or loading section before reading its supporting generators.
+Consult the walkthrough's stated checks and limits: a source-map entry
+is not a certification that every execution path works on this image.
+
+\newcommand{\sourcefile}[3]{\filepath{#1} & Section~\ref{#2}: #3\\}
+
+\paragraph{Individual examples and reflective mechanisms.}
+\begin{longtable}{L{0.41\textwidth}L{0.49\textwidth}}
+\textbf{Original file} & \textbf{Reading route and role}\\\hline
+\endhead
+\sourcefile{examples/misc/future-ex.abclr2}{sec:original-future}{Tree traversal, repeated replies, and the terminal marker.}
+\sourcefile{examples/misc/inherit.abclr2}{sec:original-inherit}{Bird/emu application, inherited scripts, and reflective context.}
+\sourcefile{examples/misc/built-ins.abclr2}{sec:builtin-reading}{Schematic environment, script, and queue protocols; not a runtime to load.}
+\sourcefile{examples/misc/user-script.abclr2}{sec:user-script-reading}{Sender-sensitive script matching, dynamic installation, and separate application/evaluation replies.}
+\sourcefile{examples/misc/MCP.abclr2}{sec:mcp-reading}{Meta-circular group manager, application metaobjects, and evaluator cases.}
+\sourcefile{examples/misc/meta-meta.abclr2}{sec:meta-meta-reading}{Three levels of identities and the twice computation.}
+\sourcefile{examples/misc/reify-args.abclr2}{sec:original-if}{Eager/lazy branch selection; Section~\ref{sec:interrupt} follows interruption and the separate control-flow experiment.}
+\sourcefile{examples/misc/fault-tolerant.abclr2}{sec:retry}{Acceptance state, initialization, rejection, and retry with preserved reply/sender.}
+\sourcefile{examples/misc/break.abclr2}{sec:break}{Breakpoint continuation, lexical environment navigation, and resume.}
+\sourcefile{examples/misc/express-ex.abclr2}{sec:original-express}{Newer clock protocol, suspension context, atomic regions, and express-message routing.}
+\sourcefile{examples/misc/express-old-ex.abclr2}{sec:original-express}{Legacy clock and reader/writer lock participation; separate fresh session.}
+\end{longtable}
+
+\paragraph{Priority control: read the application, then the execution policy.}
+\begin{longtable}{L{0.41\textwidth}L{0.49\textwidth}}
+\textbf{Original file} & \textbf{Reading route and role}\\\hline
+\endhead
+\sourcefile{examples/pcontrol/README.abclr2}{sec:pcontrol-load}{Historical entry instructions, argument shapes, and small inputs.}
+\sourcefile{examples/pcontrol/start.abclr2}{sec:pcontrol-load}{Compile applications, then load the four machinery files in dependency order.}
+\sourcefile{examples/pcontrol/fib.abclr2}{sec:pcontrol-fib}{Child creation, saved reply destination, and two-answer join.}
+\sourcefile{examples/pcontrol/qsort.abclr2}{sec:pcontrol-qsort}{Partition self-messages, shared array, and completion join.}
+\sourcefile{examples/pcontrol/pcontrol-group.abclr2}{sec:pcontrol-policy}{Connect priority metaobjects and four evaluator objects into one group.}
+\sourcefile{examples/pcontrol/priori-meta.abclr2}{sec:pcontrol-policy}{Attach object priority to evaluation and announce dispatch activity.}
+\sourcefile{examples/pcontrol/pqueue-eval.abclr2}{sec:pcontrol-policy}{Priority/FIFO work queues, priority associations, and cyclic evaluator routing.}
+\sourcefile{examples/pcontrol/para-monitor.abclr2}{sec:pcontrol-monitor}{Logical clock, active/object counters, and output streams.}
+\end{longtable}
+
+\paragraph{Time Warp: separate application, histories, and evaluator scheduling.}
+\begin{longtable}{L{0.41\textwidth}L{0.49\textwidth}}
+\textbf{Original file} & \textbf{Reading route and role}\\\hline
+\endhead
+\sourcefile{examples/time-warp/README.abclr2}{sec:tw-loading}{Historical run sequence and virtual-time application interface.}
+\sourcefile{examples/time-warp/tw-load.abclr2}{sec:tw-loading}{Ten-file compile/load sequence; distinguishes loaded machinery from alternatives.}
+\sourcefile{examples/time-warp/tw-wash1.abclr2}{sec:tw-application}{Timed car/washer pairing, availability, finish sentinel, and controller join.}
+\sourcefile{examples/time-warp/tw-wash0.abclr2}{sec:tw-loading}{Earlier ordinary-message application, without Time Warp or timed service completion.}
+\sourcefile{examples/time-warp/tw-meta.abclr2}{sec:tw-recovery}{Ordinary/timed dispatch, stragglers, state restoration, and anti-messages.}
+\sourcefile{examples/time-warp/tw-undo-env.abclr2}{sec:tw-histories}{Saved local binding frames and strict-before-cutoff restoration.}
+\sourcefile{examples/time-warp/tw-undoable-pqueue.abclr2}{sec:tw-histories}{Pending/dequeued inputs, replay, cancellation, and active versus conditional alternatives.}
+\sourcefile{examples/time-warp/tw-output-history.abclr2}{sec:tw-histories}{Record sent events and extract speculative output by send-time cutoff.}
+\sourcefile{examples/time-warp/tw-group.abclr2}{sec:tw-evaluator}{Connect components, transfer scheduler queues, and select evaluator variants.}
+\sourcefile{examples/time-warp/tw-eval.abclr2}{sec:tw-evaluator}{Expression interpretation and time/output context; Section~\ref{sec:tw-variants} compares NR/NS.}
+\sourcefile{examples/time-warp/tw-meta-eval.abclr2}{sec:tw-evaluator}{Queue evaluator requests by LVT and count evaluation arrivals.}
+\sourcefile{examples/time-warp/tw-pqueue.abclr2}{sec:tw-evaluator}{Priority and FIFO work queues; not the undoable application input queue.}
+\sourcefile{examples/time-warp/tw-monitor.abclr2}{sec:tw-evaluator}{Rollback announcements and their counter.}
+\sourcefile{examples/time-warp/tw-test.abclr2}{sec:tw-evaluator}{Independent countdown objects; the starter is not a completion join.}
+\sourcefile{examples/time-warp/tw-scheduler.abclr2}{sec:tw-evaluator}{Unfinished fragment, not loaded by the application loader.}
+\end{longtable}
+
+\paragraph{Libraries: loading is not the same as installing a policy.}
+\begin{longtable}{L{0.41\textwidth}L{0.49\textwidth}}
+\textbf{Original file} & \textbf{Reading route and role}\\\hline
+\endhead
+\sourcefile{lib/future.abclr2}{sec:original-future}{Buffered reply destination, consumption, and explicit application completion; see also Section~\ref{sec:futures}.}
+\sourcefile{lib/multicast.abclr2}{sec:multicast}{Evaluator installation, target templates, forwarding, and reply collection.}
+\sourcefile{lib/heavy-meta.abclr2}{sec:guards}{Guard-aware script selection and candidate fallback.}
+\sourcefile{lib/heavy-meta-old.abclr2}{sec:guards}{Historical reference only: use the regular variant with the current translator.}
+\sourcefile{lib/express.abclr2}{sec:original-express}{Newer sender/receiver machinery and execution modes.}
+\sourcefile{lib/express-old.abclr2}{sec:original-express}{Different legacy lock/count protocol; not an alias for the newer library.}
+\sourcefile{lib/copy.abclr2}{sec:copy}{New identities versus shared lexical/script/reply references and state-copy restrictions.}
+\sourcefile{lib/watch.abclr2}{sec:watch}{Outgoing-send evaluator wrapper, reporters, and restoration boundaries.}
+\sourcefile{lib/report.abclr2}{sec:report}{Copy-based arrival/dispatch/completion reports and filtering.}
+\end{longtable}

@@ -1,0 +1,108 @@
+;;; -*- Mode: ABCL1 -*-
+;;; breakpoint.abclr2
+;;; breakpoint debugging facilty
+;;; Aug. 8, 1992 by MASUHARA, H.
+
+;; This file must be loaded before the files using breaks.
+[object break-monitor
+ (script
+  (=> [dummy-object format args] @ R from sender
+      (format t "~&Object ~S breaks." sender)
+      (when format
+        (format t "~&~?" format args))
+      [environment-inspector 
+       <= [[[[meta dummy-object] <== :state] <== :lexenv]
+           nil]
+        @ R]))]
+
+[object environment-inspector
+ (meta-gen non-reifying-meta)
+ (script
+  (=> [environment env-record] @ R
+      (temporary command)
+      (do ((command :skip
+                    (progn (format t "~&Inspect(~S)> " environment)
+                           (read))))
+          ((eq command :r)
+           (progn
+             (format t "~&Return value = ")
+             [R <= (read)]))
+        (case command
+          ((:u :up)
+           (let ((lexenv [environment <== :lexenv]))
+             (when lexenv
+               [env-record := [environment . env-record]]
+               [environment := lexenv])))
+          ((:a :alist)
+           (format t "~&~S" [environment <== :alist]))
+          ((:l :list)
+           (format t "~&~S" (mapcar #'car [environment <== :alist])))
+          ((:d :down)
+           (when env-record
+             [environment := (car env-record)]
+             [env-record := (cdr env-record)]))
+        ((:s :set :=)
+         (let* ((name
+                 (progn (format t "~&Name = ") (read)))
+                (value 
+                 (progn (format t "~&Value = ") (read))))
+           [environment <= [:set-local name value]]))
+        ((:h :help ?)
+         (format t "~&Commands: :u :up~25Tgo up~
+                    ~&          :d :down~25Tgo down~
+                    ~&          <name>~25Tshow value of <name>~
+                    ~&          :s :set~25Tset value of variable~
+                    ~&          :a :alist~25Tshow association list~
+                    ~&          :l :list~25Tlist local symbols~
+                    ~&          :h :help ?~25Tthis help"))
+        (:skip)
+        (t
+         (if [environment <== [:boundp command]]
+             (format t "~&~S=~S" command
+                     [environment <== [:value-of command]])
+             (format t "~&~S is unbound." command)))))))]
+
+(defmacro abclr2-break (&optional format &rest args)
+  `[break-monitor <== [[object (script)] ,format (list ,@args)]])
+
+#|
+ABCL/R2>[object foo
+         (state [x := 0])
+         (script
+          (=> y
+           (temporary [z := (+ x y)])
+           (abclr2-break)
+           !z))]
+#<foo-56>
+ABCL/R2>[foo <== 123]
+Object #<foo-56> breaks.
+Inspect(#<state-57>)> :l
+(Z)
+Inspect(#<state-57>)> z 
+Z=123                                   ; the value of z is 123
+Inspect(#<state-57>)> :u 
+Inspect(#<state-58>)> :l 
+(#:G2230 Y)                             ; #:G2230 is reply destination
+Inspect(#<state-58>)> y 
+Y=123                                   ; the value of y is 123
+Inspect(#<state-58>)> :u 
+Inspect(#<state-59>)> :l 
+(X)
+Inspect(#<state-59>)> :set              ; change the value of x to 10
+Name = x
+Value = 10 
+Inspect(#<state-59>)> :d 
+Inspect(#<state-58>)> :d 
+Inspect(#<state-57>)> :set 
+Name = z 
+Value = 999                             ; change the value of z to 999
+Inspect(#<state-57>)> :r 
+Return value = 0                        ; return from abclr2-break
+999                                     ; the value of z is returned
+ABCL/R2>[foo <== 123]
+Object #<foo-56> breaks.
+Inspect(#<state-60>)> :r 
+Return value = t                        ; return immediately
+133                                     ; the value of x=10, y=123; z=133
+ABCL/R2>
+|#

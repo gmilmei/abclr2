@@ -1,0 +1,109 @@
+;;; Time Warp: undoable priority queue
+;;; Feb. 15, 1992 by MASUHARA, H.
+
+;; Undoable Input Queue Generator
+;; This object is customized for TW-Meta.
+[object undoable-pqueue-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> :new @ R
+       [object undoable-pqueue
+	 (meta-gen non-reifying-meta)
+	 (state [old := nil]
+		[queue := nil])
+	 (script
+	  #+COMMENT
+	  (=> [:enq [:message Message Reply Sender VST VRT]]
+	      (temporary
+	       [anti-mes := (find [:anti-message Message Reply Sender VST VRT]
+				  queue
+				  :test #'equal)])
+	      (if anti-mes
+		  (progn
+		    #+COMMENT
+		    (format t "~&###Positive message ~S is rejected"
+			    [Message Sender VST VRT])
+		    [queue := (delete anti-mes queue :test #'equal)])
+		  [queue
+		   := (sort-queue
+		       (cons [:message Message Reply Sender VST VRT]
+			     queue))]))
+	  (=> [:enq [:message Message Reply Sender VST VRT]]
+	      [queue
+	       := (sort-queue (cons [:message Message Reply Sender VST VRT]
+			      queue))])
+          (=> [:enq [:anti-message Message Reply Sender VST VRT]]
+              (temporary
+               [pos-mes := (find [:message Message Reply Sender VST VRT]
+                                 queue
+                                 :test #'equal)])
+              (if pos-mes
+		  (progn
+		    #+COMMENT
+		    (format t "~&###Positive message ~S is cancelled" pos-mes)
+		    [queue := (delete pos-mes queue :test #'equal)])
+		  (progn
+		    
+		    [queue 
+		     := (sort-queue
+			 (cons [:anti-message Message Reply Sender VST VRT]
+			       queue))]
+		    #+COMMENT
+		    (format t "~&###Anti-message ~S is queued~
+			       ~&###(queue will be ~S)"
+			    [Message Sender VST VRT]
+			    queue)
+		    )))
+	  (=> :deq
+	      !(first queue)
+	      [old := (cons (first queue) old)]
+	      [queue := (rest queue)])
+	  (=> :empty? !(null queue))
+	  (=> [:rollback-to Time]
+	      (temporary
+	       [redos := (separate-list
+			  (funcall #'(lambda (Time)
+				       #'(lambda (item)
+					   (< (sixth item) Time)))
+				   Time)
+			  old)])
+              #+COMMENT
+              (format t "~&###Rewind to ~D~
+                         ~&###OLD=~S~
+                         ~&###QUEUE=~S"
+                      Time old queue)
+	      [queue := (sort-queue
+			 (remove-anti (revappend (first redos) queue)))]
+	      [old := (second redos)]
+              #+COMMENT
+              (format t "~&###Rewind the input queue by ~D~
+                         ~&###QUEUE=~S~
+                         ~&###OLD=~S" Time queue old))
+	  (=> :show ![:old old :queue queue]))]
+       [R <= undoable-pqueue]))]
+
+(defun separate-list (pred list)
+  (do ((p list (cdr p))
+       (f nil))
+      ((or (null p)
+	   (funcall pred (car p)))
+       (list f p))
+    (push (car p) f)))
+
+(defun remove-anti (queue)
+  (if (null queue)
+    nil
+    (let ((rev-m (find (rest (first queue)) (rest queue)
+                       :test #'equal :key #'rest)))
+      (if rev-m
+        (remove-anti (delete rev-m (rest queue) :test #'equal
+                             :count 1))
+        (cons (first queue)
+              (remove-anti (rest queue)))))))
+
+(defun sort-queue (queue)
+  (sort queue
+	#'(lambda (m1 m2)
+	    (or (< (sixth m1) (sixth m2))
+		(and (eq (first m1) ':anti-message)
+		     (eq (first m2) ':message))))))

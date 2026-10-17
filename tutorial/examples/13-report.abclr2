@@ -1,0 +1,20 @@
+;; Supplemental clients for the distributed report and copy libraries.
+(inc-lib "lib/copy" :use-source t)
+(inc-lib "lib/report" :use-source t)
+
+[object report-subject
+ (script
+  (=> [:echo value] !value)
+  (=> [:twice value] !(* 2 value))
+  (=> :silent nil))]
+
+[report-original := report-subject]
+
+[object report-recorder
+ (meta-gen non-reifying-meta)
+ (state [events := nil])
+ (script
+  (=> [:report identity type triple]
+      [events := (cons (list identity type triple) events)])
+  (=> :events !(reverse events))
+  (=> :reset [events := nil] !:reset))]

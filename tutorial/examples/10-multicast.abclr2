@@ -1,0 +1,30 @@
+;; Supplemental clients for the unchanged multicast library.
+(inc-lib "lib/multicast" :use-source t)
+
+[group multicast-group
+ (evaluator [multicast-eval-gen
+             <== [:new (r2sys::create-primary-eval group)]])]
+
+[object multicast-client
+ (group multicast-group)
+ (script
+  (=> [:now targets value] ![targets <== value])
+  (=> [:past targets value reply]
+      [targets <= value @ reply]
+      !:submitted)
+  (=> [:fire targets value]
+      [targets <= value]
+      !:submitted))]
+
+[object multicast-inbox
+ (state [arrivals := 0] [last-result := nil])
+ (script
+  (=> :status !(list arrivals last-result))
+  (=> :reset [arrivals := 0] [last-result := nil] !:reset)
+  (=> value [arrivals := (1+ arrivals)] [last-result := value]))]
+
+[object multicast-silent
+ (state [hits := 0])
+ (script
+  (=> :hits !hits)
+  (=> value [hits := (1+ hits)]))]

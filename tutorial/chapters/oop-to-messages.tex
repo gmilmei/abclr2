@@ -1,0 +1,106 @@
+\subsection{From Method Calls to Message Protocols}
+
+In a familiar OOP language, a call such as \code{account.balance()}
+selects a method, executes its body, and returns a value to the caller.
+ABCL/R2 separates these jobs. A sender constructs a data value, sends it
+to an object, and may arrange a destination for a later reply.
+The receiving object matches that data against its scripts.
+A \emph{script} is a handler: a message pattern followed by expressions
+to execute when the pattern matches.
+
+\begin{longtable}{L{0.28\textwidth}L{0.62\textwidth}}
+\textbf{Familiar idea} & \textbf{ABCL/R2 counterpart and difference}\\\hline
+Object fields & State bindings belonging to an object; outer lexical
+bindings can also be shared.\\
+Method selection & First matching message pattern, not necessarily a
+method name plus a fixed argument signature.\\
+Method arguments & Data inside the message; pattern variables extract
+the parts the handler needs.\\
+Return value & An explicit reply message, not the handler's final value.\\
+Inheritance & Can be implemented by a reflective protocol; the original
+bird/emu example does not declare a superclass.\\
+\end{longtable}
+
+A \emph{protocol} specifies the messages an object accepts and what its
+clients may expect: replies, state changes, or further messages.
+For an account, \code{[:deposit 10]} and \code{:balance} can be two
+protocol messages. The colon is part of a Lisp keyword, not special
+method-call punctuation; the next chapter explains keywords.
+
+\subsection{An Actor-Like Mental Model}
+
+An \emph{actor} is a useful introductory model of an independently
+addressable participant that reacts to messages and can send more messages.
+For an ordinary ABCL/R2 object, imagine an inbox and a handler processing
+one request at a time. Other objects have their own work.
+\emph{Concurrent} means their activities can be outstanding together;
+it does not require simultaneous execution on different CPUs.
+
+The distinction becomes concrete in this sequence:
+\begin{enumerate}[nosep]
+  \item A client sends a deposit request to an account.
+  \item The request enters the ordinary receiving object's message machinery.
+  \item The account selects a matching handler and updates its balance.
+  \item If the protocol requires it, the handler explicitly sends a reply.
+  \item The client uses that reply, or continues without waiting if it sent
+        asynchronously.
+\end{enumerate}
+Sending is therefore not the same event as finishing the requested work.
+An asynchronous sender does not automatically receive a completion notice.
+Conversely, a waiting sender cannot finish its request unless someone
+sends the required reply.
+
+This is an actor-like explanation, not a claim that ABCL/R2 enforces pure
+actor isolation. Its lexical bindings can be shared between objects.
+\emph{Reflection} means that a program can inspect or control parts of
+its own execution machinery. It can therefore change the ordinary
+selection and execution of handlers.
+Learn the ordinary model first; later chapters state where it is extended.
+
+\subsection{Three Questions to Ask While Reading}
+
+For every send in an original program, ask:
+\begin{enumerate}[nosep]
+  \item Which object receives this message, and which pattern matches it?
+  \item Does the sender wait, and where will any reply be sent?
+  \item What establishes completion: one reply, a count, or a terminal message?
+\end{enumerate}
+In \filepath{examples/misc/future-ex.abclr2}, these questions distinguish
+the tree walker, the object consuming its replies, and the printer.
+In \filepath{examples/misc/inherit.abclr2}, they distinguish an application
+object from the metaobject running its dispatch protocol.
+You do not need to understand those files yet; these are our first
+original-source reading goals.
+
+\paragraph{A route through the book.}
+Work in stages rather than trying to absorb every library at once:
+\begin{enumerate}[nosep]
+  \item \emph{Build the ordinary model.} Follow
+        Sections~\ref{sec:first-session}--\ref{sec:files}, trying the
+        small sessions and exercises. At the bank account
+        (Section~\ref{sec:account}), explain which pattern handles each
+        request and why the caller receives a reply.
+  \item \emph{Follow results over time.} Study futures in
+        Section~\ref{sec:futures}, then trace the original tree walker
+        in Section~\ref{sec:original-future}. Explain why its terminal
+        message, not an empty buffer or a printed line, marks completion.
+        Express messages are an advanced extension; you may return to
+        that experiment after learning reflection.
+  \item \emph{Open the execution machinery.} Read
+        Section~\ref{sec:reflection}, then the original lazy-control,
+        inheritance, and interpreter projects in
+        Section~\ref{sec:originals}. Keep the application reply separate
+        from the interpreter's execution-completion message.
+  \item \emph{Combine the mechanisms.} Work through the library and
+        debugging projects, then Pcontrol and Time Warp
+        (Sections~\ref{sec:pcontrol} and \ref{sec:timewarp}).
+        These are advanced reading projects, not prerequisites for
+        ordinary object programming. Return to the file map in
+        Appendix~\ref{sec:source-map} when following their helper objects.
+\end{enumerate}
+The job-service project (Section~\ref{sec:project}) is a parallel practice
+track: it combines ordinary objects and reply protocols, so you can try
+it after the foundations without first mastering the reflective projects.
+Use the worked exercise answers to check your reasoning, not just the
+final values. At each stage, being able to explain a message's recipient,
+reply destination, and completion condition is the checkpoint for moving on.

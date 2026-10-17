@@ -1,0 +1,137 @@
+;;; -*- Mode: ABCL1; -*-
+;;; inherit.abclr2
+;;; An example program for inheritance in ABCL/R2.
+;;; Fri Mar 11 12:10:45 JST 1994 by MASUHARA, H.
+
+;;; This sample program realizes the dynamic acquisition (inheritance)
+;;; of scripts in ABCL/R2.  The mechanism for the inheritance is same
+;;; to the one in ABCL/R.
+
+;;; This macro is for the inheritance.  When this is evaluated, a
+;;; message
+;;;		[:inherit args env id gid eval] @ cont
+;;; is sent to the  metaobject.
+(defmacro inherit (&rest args)
+  `(reify-args-to-meta :inherit ,@args))
+
+;;; The metaobject generator for the inheritance.  Generated
+;;; metabojects have one additional script [:inherit ...] for the
+;;; inheritance.  Other definitions are same to the original
+;;; metaobject.
+[object inherit-meta-gen
+ (script
+  (=> [:new StateSpec LexEnv Scripts Eval GMgr . Extra] @ R
+      [object metaobject
+       (state [queue := [queue-gen <== :new]]
+	      [state := nil]
+	      [scriptSet := scripts]
+	      [evaluator := Eval]
+;; PORT-BEGIN: Expose ownership as Group; retain Group-manager for execution.
+;;|	      [Group-manager := GMgr]
+;; PORT-ACTIVE
+	      [Group-manager := GMgr] [Group := GMgr]
+;; PORT-END
+	      [mode := ':dormant]) 
+       (script
+	;; The body of pseudo reflective procedure is as follows.
+	(=> [:inherit Args Env Id Gid Eval] @ C
+	 [Eval <= [:do-evlis Args Env Id Gid Eval]
+	  @ [cont [message reply sender inherit-source]
+	      ;; A inquiry of a script is sent to the metaobject of the
+	      ;; inheritance source.
+	      (match [[meta inherit-source]
+		      <== [:find-script message reply sender]]
+		;; If a script is found, strat execution of the script.
+		(is [bindings scriptbody]
+		    [Eval
+		     <= [:do scriptbody [env-gen <== [:new bindings Env]]
+			 Id Gid Eval]
+		     @ C])
+		(otherwise
+		 (warn "Inheritance from ~S is failed." inherit-source)
+		 [C <= nil]))]])
+	(=> [:message Message Reply Sender]
+	    [queue <= [:enq [Message Reply Sender]]]
+	    (when (eq mode ':dormant)
+	      [mode := ':active]
+	      [Me <= :begin]))
+	(=> :begin
+	    (match [queue <== :deq]
+	      (is [Message Reply Sender]
+		  (match (find-script Message Reply Sender scriptSet)
+		    (is [Bindings ScriptBody]
+			[evaluator 
+			  <= [:do
+			      ScriptBody [env-gen <== [:new Bindings state]]
+			      Me Group-manager evaluator]
+			  @ [cont _
+			     [Me <= :end]]])
+		    (otherwise
+		     (warn "~S cannot handle the message ~S"
+			   [den Me] Message))))))
+	(=> :end
+	    (if (not [queue <== :empty?])
+	      [Me <= :begin]
+	      [mode := ':dormant]))
+	;; reflective operations
+	(=> :state !state)
+	(=> [:set-state s]
+	    [state := s])
+	(=> :queue @ R
+	    [queue <= :listify @ R])
+	(=> :dequeue @ R
+	    [queue <= :deq @ R])
+	(=> [:enqueue item]
+	    [queue <= [:enq item]])
+        (=> :scripts !scriptSet)
+	(=> [:find-script Message]
+	    !(search-script Message nil nil scriptSet))
+	(=> [:find-script Message Reply Sender]
+	    !(find-script Message Reply Sender scriptSet))
+	(=> [:add-script new-script]
+	    [scriptSet := (cons new-script ScriptSet)])
+	(=> [:remove-script Message]
+	    [scriptSet := (remove-script Message nil nil ScriptSet)])
+        (=> :evaluator !evaluator)
+        (=> [:set-evaluator e] [evaluator := e])
+	)]
+      ;; initialize state variables
+      [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		 LexEnv Metaobject GMgr Eval]
+	    @ [cont initValues
+		    [Metaobject
+		     <= [:set-state
+			 [env-gen 
+			  <== [:new (pairlis (stateSpec-varNames stateSpec)
+					     initValues)
+				    LexEnv]]]]
+		    [R <= Metaobject]]]))]
+
+;;; A group definition for using the inheritance mechanism.
+[group inherit-group
+  (meta-gen inherit-meta-gen)]
+
+;;; Sample session:
+#|
+ABCL/R2> [object bird
+	   (script
+	    (=> :has-feather? !t)
+	    (=> :can-fly? !t))
+	   (group inherit-group)]
+#<bird-17>
+ABCL/R2> [object emu
+	   (script
+	    (=> :can-fly? !nil)
+	    ;; acquiring scripts from bird
+	    (=> Any @ Reply from Sender
+		(inherit Any Reply Sender bird)))
+	   (group inherit-group)]
+#<emu-18>
+ABCL/R2>[bird <== :can-fly?]
+t
+ABCL/R2>[emu <== :can-fly?]
+nil
+ABCL/R2>[emu <== :has-feather?]
+t
+ABCL/R2>
+|#

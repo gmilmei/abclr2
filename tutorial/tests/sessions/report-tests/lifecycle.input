@@ -1,0 +1,15 @@
+(defun report-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&REPORT-PASS ~A~%" name)
+  (error "REPORT-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/report-tests/13-report" :use-source t)
+(report report-subject :message nil :begin nil :end nil)
+[[meta report-subject] <= [:set-reporter report-recorder]]
+[report-subject <= :silent]
+(report-check "silent-body-finishes" (mapcar #'second [report-recorder <== :events]) '(:message :begin :end))
+(report-check "silent-payload" (mapcar #'(lambda (e) (first (third e))) [report-recorder <== :events]) '(:silent :silent :silent))
+(report-check "next-request-runs" [report-subject <== [:echo 4]] 4)
+(report-check "two-complete-cycles" (mapcar #'second [report-recorder <== :events]) '(:message :begin :end :message :begin :end))
+(report-check "empty-queue" [[meta report-subject] <== :queue] nil)
+(format t "~&REPORT-END~%")
+:q

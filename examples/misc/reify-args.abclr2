@@ -1,0 +1,239 @@
+;;;-*- Mode: ABCL1; Package: ABCLR2-USER -*-
+;;; reify-args.abclr2
+;;;
+;;; Examples for reify-args & reify-args-to-meta special forms.
+;;;
+;;; Jun. 13, 1993 by MASUHARA, H.
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Example 1: IF with EF
+;;;
+;;; As you can see in examples of Brown, special form IF can be
+;;; realized at metalevel only with EF, which is an applicative
+;;; function. 
+;;;
+;;; In Brown, you can write IF as follows:
+;;;   (define-reflect IF (e r k)
+;;;    (meaning (car e) r 
+;;;      (lambda (pred)
+;;;        (meaning (ef pred (cadr e) (caddr e)) r k))))
+
+(defun ef (pred then else)
+  (if pred then else))
+
+[group if-with-ef
+ (evaluator
+  [object
+   (state [primary-eval := (create-primary-eval group)])
+   (script
+    (=> [:IF [pred then else] Env Id Gid Eval] @ C
+        [Eval <= [:do pred Env Id Gid Eval]
+              @ [cont result
+                 [Eval <= [:do (ef result then else) Env Id Gid Eval]
+                       @ C]]])
+    (=> any @ R
+        [primary-eval <= any @ R]))])]
+
+;; (my-if a b c) is shorthand for (reify-args :IF a b c)
+(defmacro my-if (&rest body)
+  `(reify-args :IF ,@body))
+
+[object my-if-test
+ (group if-with-ef)
+ (script
+  (=> [:my-if n]
+   !(my-if (evenp n) 
+      (progn (print "Even") (/ n 2))
+      (progn (print "Odd") (- n 1))))
+  (=> [:ef n]
+   !(ef (evenp N) 
+      (progn (print "Even") (/ n 2))
+      (progn (print "Odd") (- n 1)))))]
+
+#|
+ABCL/R2> [my-if-test <== [:ef 3]]
+"Even" 
+"Odd" 
+2
+ABCL/R2> [my-if-test <== [:my-if 3]]
+"Odd" 
+2
+? 
+|#
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Example 2: with-interrupt
+;;; 
+;;; In this example, the user defines a form WITH-INTERRUPT, whose
+;;; first argument is executed.  During the execution, an interruption
+;;; may be rised.  When the execution terminates without interruption,
+;;; the second argument is executed.  On the otherhand, when an
+;;; interruption is rised during the execution, the third argument is
+;;; executed instead.
+
+[object meta-with-interrupt-gen
+ (group [group-of group])
+ (script
+  (=> [:new StateSpec LexEnv Scripts Eval GMgr . Extra] @ R
+      (temporary
+       [interruptable-eval
+        := [object
+            (meta-gen non-reifying-meta)
+            (state [interrupted := nil]
+                   notification-address)
+            (script
+             (=> [:interrupt R]
+                 [notification-address := R]
+                 [interrupted := t])
+             (=> any @ R
+                 (if interrupted
+                   (progn
+                     [interrupted := nil]
+                     [notification-address <= [:context [any . R]]])
+                   [Eval <= any @ R])))]])
+      [object Metaobject
+       (meta-gen non-reifying-meta)
+       (state [queue := [queue-gen <== :new]]
+	      [state := nil]
+	      [scriptSet := scripts]
+	      [evaluator := interruptable-eval]
+	      [Group-manager := GMgr]
+	      [mode := ':dormant]
+              context-for-recover
+              fail-form)
+       (script
+        (=> [:interrupt]
+            (if (eq mode :active)
+              (progn (format t "~&Being interrupted...")
+                     [evaluator <= [:interrupt Me]])
+              (format t "~&Interruption is ignored.")))
+        (=> [:context _]
+            (format t "~&Context is caught.")
+            (match context-for-recover
+              (is [C Env Id Gid Eval]
+                [Eval <= [:do fail-form Env Id Gid Eval] @ C])))
+        (=> [:with-interrupt [Body Success Fail] Env Id Gid Eval] @ C
+            [fail-form := fail]
+            [context-for-recover := [C Env Id Gid Eval]]
+            [Eval <= [:do Body Env Id Gid Eval]
+                  @ [cont Result
+                     ;; finished without interruption
+                     [Eval <= [:do Success Env Id Gid Eval] @ C]]])
+        ;; Scripts down from here are as same as the primary meta's.
+	(=> [:message Message Reply Sender]
+	    [queue <= [:enq [Message Reply Sender]]]
+	    (when (eq mode ':dormant)
+	      [mode := ':active]
+	      [Me <= :begin]))
+	(=> :begin
+	    (match [queue <== :deq]
+	      (is [Message Reply Sender]
+		  (match (find-script Message Reply Sender scriptSet)
+		    (is [Bindings ScriptBody]
+			[evaluator 
+			  <= [:do
+			      ScriptBody [env-gen <== [:new Bindings state]]
+			      Me Group-manager evaluator]
+			  @ [cont _
+			     [Me <= :end]]])
+		    (otherwise
+		     (warn "~S cannot handle the message ~S"
+			   [den Me] Message))))))
+	(=> :end
+	    (if (not [queue <== :empty?])
+	      [Me <= :begin]
+	      [mode := ':dormant]))
+	;; reflective operations
+	(=> :state !state)
+	(=> [:set-state s]
+	    [state := s])
+	(=> :queue @ R
+	    [queue <= :listify @ R])
+	(=> :dequeue @ R
+	    [queue <= :deq @ R])
+	(=> [:enqueue item]
+	    [queue <= [:enq item]])
+        (=> :scripts !scriptSet)
+	(=> [:find-script Message]
+	    !(search-script Message nil nil scriptSet))
+	(=> [:add-script new-script]
+	    [scriptSet := (cons new-script ScriptSet)])
+	(=> [:remove-script Message]
+	    [scriptSet := (remove-script Message nil nil ScriptSet)])
+        (=> :evaluator !evaluator)
+        (=> [:set-evaluator e] [evaluator := e])
+	)]
+;; PORT-BEGIN: Set the known owner before initialization; NRM state remains opaque.
+;; PORT-ACTIVE
+      (setf (r2sys::object-data-gid [den Metaobject]) GMgr)
+;; PORT-END
+      ;; initialize state variables
+      [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		 LexEnv Metaobject GMgr Eval]
+	    @ [cont initValues
+		    [Metaobject
+		     <= [:set-state
+			 [env-gen 
+			  <== [:new (pairlis (stateSpec-varNames stateSpec)
+					     initValues)
+				    LexEnv]]]]
+		    [R <= Metaobject]]]))]
+
+[group with-interrupt
+ (meta-gen meta-with-interrupt-gen)
+;;(evaluator
+;;[object verbose
+;; (state [primary := (create-primary-eval group)])
+;; (script
+;;  (=> any @ R
+;;      (format t "~&Executing ~S" any)
+;;      [primary <= any @ R]))])
+]
+
+(defmacro with-interrupt (&rest forms)
+  `(reify-args-to-meta :with-interrupt
+     ,@forms))                      
+
+[object test-with-interrupt
+ (group with-interrupt)
+ (script
+  (=> [:run n]
+   !(with-interrupt
+      (dotimes (i n)
+        (format t "~&Count ~D." i))
+      "Yeah! I did it!"
+      "Time is up.")))]
+
+[object test-with-interrupt-2
+ (group with-interrupt)
+ (script
+  (=> [:run n m] @ R
+      [test-with-interrupt <= [:run n] @ R]
+      (dotimes (i m)
+        ;; dummy loop
+        )
+      [[meta test-with-interrupt] <= [:interrupt]]))]
+
+#|
+? [test-with-interrupt-2 <== [:run 10 3]]
+Count 0.
+Count 1.
+Count 2.
+Being interrupted...
+Context is caught.
+"Time is up."
+? [test-with-interrupt-2 <== [:run 10 30]]
+Count 0.
+Count 1.
+Count 2.
+Count 3.
+Count 4.
+Count 5.
+Count 6.
+Count 7.
+Count 8.
+Count 9.
+Interruption is ignored.
+"Yeah! I did it!"
+? 
+|#

@@ -1,0 +1,35 @@
+
+(defun parser-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&PARSER-PASS ~A~%" name)
+  (error "PARSER-FAIL ~A: got ~S expected ~S" name actual expected)))
+(defun parser-rejected-p (expression)
+ (handler-case (progn (r2sys::parse expression) nil)
+  (error () t)))
+(defun parser-provide-rejected-p (value)
+ (handler-case (progn (eval (list 'provide (list 'quote value))) nil)
+  (type-error () t)))
+[*library-directories* := (list "@ROOT@/build/parser-tests/current/lib/")]
+(parser-check "same-ast" (r2sys::parse '(the t (+ n 1))) (r2sys::parse '(+ n 1)))
+(parser-check "reply-context" (r2sys::parse '(the t (exclam n)) 'dest) (r2sys::parse '(exclam n) 'dest))
+(parser-check "fixnum-rejected" (parser-rejected-p '(the fixnum (+ n 1))) t)
+(parser-check "values-type-rejected" (parser-rejected-p '(the (values t) (+ n 1))) t)
+(parser-check "missing-operand" (parser-rejected-p '(the t)) t)
+(parser-check "extra-operand" (parser-rejected-p '(the t n n)) t)
+(parser-check "single-evaluation" (let ((n 0)) (the t (setq n (+ n 1))) n) 1)
+(parser-check "lexical-binding" (let ((n 7)) (the t (+ n 1))) 8)
+(parser-check "conditional-lazy" (let ((n 0)) (the t (if nil (setq n 99) (setq n 1))) n) 1)
+(parser-check "host-cond" (let ((n 7)) (cond ((evenp n) :even) (t :odd))) :odd)
+(parser-check "provide-symbol" (progn (provide :parser-symbol) (car *modules*)) "parser-symbol")
+(parser-check "provide-string" (progn (provide "PARSER-STRING") (car *modules*)) "parser-string")
+(parser-check "provide-character-rejected" (parser-provide-rejected-p #\a) t)
+(parser-check "provide-number-rejected" (parser-provide-rejected-p 42) t)
+(parser-check "provide-eql" (let ((n (length *modules*))) (provide :parser-repeat) (provide :parser-repeat) (- (length *modules*) n)) 2)
+
+[object parser-echo (script (=> n !n))]
+[object parser-forward (script (=> n @ R (the t [parser-echo <= n @ R])))]
+(parser-check "reply-forward" [parser-forward <== 17] 17)
+(inc "@ROOT@/build/parser-tests/current/examples/misc/future-ex" :use-source t)
+[print-leaves <= '((a b) (c (d . e) f) g)]
+(format t "~&PARSER-END~%")
+:q

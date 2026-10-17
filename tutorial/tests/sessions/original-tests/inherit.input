@@ -1,0 +1,13 @@
+(defun original-check (name actual expected)
+ (if (equal actual expected)
+   (format t "~&ORIGINAL-PASS ~A~%" name)
+   (error "ORIGINAL-FAIL ~A: got ~S expected ~S" name actual expected)))
+[*library-directories* := (list "@ROOT@/build/original-tests/lib/")]
+(inc "@ROOT@/build/original-tests/examples/misc/inherit" :use-source t)
+[object bird (script (=> :has-feather? !t) (=> :can-fly? !t)) (group inherit-group)]
+[object emu (script (=> :can-fly? !nil) (=> Any @ Reply from Sender (inherit Any Reply Sender bird))) (group inherit-group)]
+(original-check "bird" [bird <== :can-fly?] t)
+(original-check "emu-flight" [emu <== :can-fly?] nil)
+(original-check "emu-feathers" [emu <== :has-feather?] t)
+(format t "~&ORIGINAL-END inherit~%")
+:q

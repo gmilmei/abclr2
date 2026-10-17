@@ -1,0 +1,32 @@
+;; Supplemental guards: use the original heavy-meta library.
+(inc-lib "lib/heavy-meta" :use-source t)
+
+[object guarded-choice
+ (state [limit := 10] [checks := 0])
+ (script
+  (=> [:choose n]
+      where (progn
+              [checks := (1+ checks)]
+              (and (integerp n) (> n limit)))
+      !:accepted)
+  (=> [:choose _] !:rejected)
+  (=> :checks !checks))]
+
+[object guarded-header
+ (script
+  (=> [:who expected] @ R from S where (and (eq S expected) R)
+      !(not (null R)))
+  (=> [:who _] !nil))]
+
+[object guard-driver
+ (script
+  (=> :self ![guarded-header <== [:who Me]])
+  (=> :other ![guarded-header <== [:who nil]]))]
+
+[group guarded-group]
+[object grouped-choice
+ (group guarded-group)
+ (meta-gen heavy-meta)
+ (script
+  (=> [:choose n] where (and (integerp n) (plusp n)) !:positive)
+  (=> [:choose _] !:rejected))]

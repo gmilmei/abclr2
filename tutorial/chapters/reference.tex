@@ -1,0 +1,68 @@
+\appendix
+\section{Building the Book and Checking Its Examples}
+\label{sec:book-build}
+
+From the repository root, build the PDF and check the examples:
+
+\begin{lstlisting}[language=bash]
+make -C tutorial
+make -C tutorial check
+\end{lstlisting}
+
+The PDF build runs \code{lualatex} three times to stabilize the contents,
+page numbers, and citations.
+It keeps build intermediates in \filepath{build/tutorial-build/} and
+copies the finished document to \filepath{doc/tutorial.pdf}.
+The build and checks create their scratch directories automatically;
+no pre-existing contents of \filepath{build/} are required.
+It requires SBCL for source-excerpt preparation and a LuaLaTeX installation
+with the packages named in the preamble,
+Libertinus Serif and Libertinus Sans for text, and Noto Sans Mono for code.
+The native runner \filepath{tutorial/tests/run-tests.lisp} needs SBCL and
+the current ABCL/R2 executable, built with \code{make} at the root;
+no Python or external Lisp packages are needed.
+The checks run example sessions in fresh processes and keep source copies,
+translations and transcripts under \filepath{build/}.
+Session inputs are in \filepath{tutorial/tests/sessions/}; expected
+results are specified in \filepath{tutorial/tests/cases.lisp}.
+Run \code{make -C tutorial reading-check} for the Lisp-reading examples,
+\code{reflection-check} for reflective protocols, and
+\code{group-check} for ownership and identity checks.
+
+Interactive loading creates a neighboring \code{.lsp} file; use
+\code{:use-source t} while editing to avoid cached translations.
+Printed object identifiers are session-dependent, not stable expected outputs.
+
+\input{tutorial/chapters/source-map}
+
+\section{Syntax at a Glance}
+\label{sec:syntax}
+\input{tutorial/chapters/syntax}
+
+\section{Troubleshooting Program Protocols}
+\label{sec:failures}
+
+\begin{description}
+  \item[No return messages.]
+  A now-type call has no reply. Check that a script matched and every
+  result path either uses \code{!} or forwards the original reply
+  destination. Also look earlier in the transcript for a Lisp error.
+  \item[An object is not bound.]
+  Its definition may have failed while loading the file. Read the first
+  error rather than treating later missing bindings as independent failures.
+  \item[A future never finishes.]
+  The producer may not send the terminal marker, or a reader may have
+  consumed it already. Futures do not infer completion.
+  \item[A macro expands into an unsupported special form.]
+  ABCL/R2 does not support every Common Lisp special form. Inspect the
+  macro expansion and compare it with the supported forms following
+  Section~\ref{sec:lisp-reading}.
+  \item[Script lambdas.]
+  Lambdas embedded in scripts cannot capture ABCL lexical variables,
+  and their bodies cannot contain ABCL object creation or message sends
+  in this implementation~\cite{guide}. Prefer a script object for
+  an ABCL callback.
+\end{description}
+
+\clearpage
+\input{tutorial/chapters/concept-index}

@@ -1,0 +1,44 @@
+
+(defun variant-expression (form)
+ (eval (r2sys::translate (r2sys::parse form))))
+(defun variant-compiled-expression ()
+ (list :compiled
+  #'(lambda (c env id gid eval)
+     (declare (ignore env id gid))
+     (r2sys::send-message c 42 nil eval))))
+(defvar *variant-count* 0)
+(defun variant-once-expression ()
+ (list :self-evaluate #'(lambda () (incf *variant-count*) :once)))
+(defun variant-once-count () *variant-count*)
+(defun variant-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&VARIANT-PASS ~A~%" name)
+  (error "VARIANT-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "tw-load" :use-source t)
+[old-eval := [TW-group <== :evaluator]]
+[object before-switch (group TW-group) (script (=> :probe !42))]
+[old-meta-state := [[meta [meta before-switch]] <== :state]]
+[TW-group <= :no-schedule-eval]
+[new-eval := [TW-group <== :evaluator]]
+(variant-check "new-evaluator" (not (eq old-eval new-eval)) t)
+(variant-check "old-object-keeps-evaluator" [old-meta-state <== [:value-of 'evaluator]] old-eval)
+[object after-switch (group TW-group) (script (=> :probe !42))]
+[new-meta-state := [[meta [meta after-switch]] <== :state]]
+(variant-check "new-object-captures-evaluator" [new-meta-state <== [:value-of 'evaluator]] new-eval)
+[outputs := [output-history-gen <== :new]]
+[literal-result := [new-eval <== [:do (variant-expression :fin) global-env [meta after-switch] TW-group new-eval outputs 7]]]
+(variant-check "literal-representation" (functionp literal-result) nil)
+(variant-check "literal-payload" (if (functionp literal-result) (funcall literal-result) literal-result) :fin)
+(variant-check "compiled-expression" [new-eval <== [:do (variant-compiled-expression) global-env [meta after-switch] TW-group new-eval outputs 7]] 42)
+(variant-check "virtual-time" [new-eval <== [:do (variant-expression 'LVT) global-env [meta after-switch] TW-group new-eval outputs 7]] 7)
+(variant-check "number-payload" [new-eval <== [:do (variant-expression 17) global-env [meta after-switch] TW-group new-eval outputs 7]] 17)
+(variant-check "nil-payload" [new-eval <== [:do (variant-expression nil) global-env [meta after-switch] TW-group new-eval outputs 7]] nil)
+(variant-check "symbol-payload" [new-eval <== [:do (variant-expression '(quote variant-unbound-symbol)) global-env [meta after-switch] TW-group new-eval outputs 7]] 'variant-unbound-symbol)
+(variant-check "list-payload" [new-eval <== [:do (variant-expression '(quote (:a :b))) global-env [meta after-switch] TW-group new-eval outputs 7]] '(:a :b))
+(variant-check "function-as-payload" (funcall [new-eval <== [:do (variant-expression '(function identity)) global-env [meta after-switch] TW-group new-eval outputs 7]] :payload) :payload)
+(variant-check "thunk-result" [new-eval <== [:do (variant-once-expression) global-env [meta after-switch] TW-group new-eval outputs 7]] :once)
+(variant-check "thunk-evaluated-once" (variant-once-count) 1)
+(variant-check "application-script-body" [after-switch <== :probe] 42)
+(format t "~&VARIANT-END~%")
+:q

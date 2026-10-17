@@ -1,0 +1,71 @@
+\subsection{Parentheses, Brackets, and Quoting}
+
+Parentheses normally express a Lisp function call:
+\code{(+ 2 3)} calls addition. Brackets have several roles.
+A recognized operator makes them an ABCL form, such as object creation,
+assignment, or message transmission. Otherwise, they construct a list
+of evaluated values. Thus \code{[:add 2 3]} constructs the data
+\code{(:ADD 2 3)}; it does not call an addition method by itself.
+The receiver's script gives that data meaning.
+
+\begin{lstlisting}
+(let ((x 7))
+  [:point x (+ x 1)])     ; => (:POINT 7 8)
+'(red green blue)        ; Literal symbols, not variable lookups
+[:label "red"]           ; A keyword and a string
+\end{lstlisting}
+
+A keyword such as \code{:point} evaluates to itself. An ordinary symbol
+such as \code{x} denotes a variable in an expression, but becomes a
+binding variable in a pattern. The same bracket syntax therefore serves
+as construction at the sending site and decomposition at the receiving site.
+Semicolons introduce comments to the end of a line.
+
+\subsection{Matching Data Inside a Script}
+
+Use \code{match} when an already selected handler needs to inspect a value.
+Clauses use \code{is}, and a final \code{otherwise} clause provides a fallback.
+The wildcard \code{\_} matches a value without introducing a named binding.
+A dotted pattern separates a list's head from its remaining tail.
+
+\sourcelisting[firstline=14,lastline=21]{tutorial/examples/01-basics.abclr2}
+
+\begin{lstlisting}
+[classifier <== [:classify [:point 2 3]]]
+; => (:POINT 2 3)
+[classifier <== [:classify [1 2 3]]]
+; => (:NONEMPTY 1 (2 3))
+[classifier <== [:classify nil]]   ; => :EMPTY
+[classifier <== [:classify 9]]     ; => :ATOM
+\end{lstlisting}
+
+The point case must precede the broad head/tail case in this \code{match}:
+a point is also a nonempty list. Pattern matching tests structure;
+it does not validate that coordinates are numbers. Use \code{if} in
+the selected body for such a check.
+
+\subsection{Temporary Variables and Loops}
+
+An object's \code{state} survives successive messages.
+A \code{temporary} declaration at the beginning of a handler instead
+creates local variables for that invocation. Here the accumulator starts
+at zero every time:
+
+\sourcelisting[firstline=23,lastline=30]{tutorial/examples/01-basics.abclr2}
+
+\begin{lstlisting}
+[list-sum <== [:sum [2 3 4]]]   ; => 9
+[list-sum <== [:sum nil]]       ; => 0
+\end{lstlisting}
+
+The \code{do} loop binds \code{rest}, tests for termination, runs its body,
+and updates \code{rest} using \code{cdr}. You can also use \code{let}
+for a local accumulator. This distribution provides \code{dotimes}
+and \code{dolist} macros that expand into supported \code{do} forms.
+Do not assume that every host Lisp macro expands into forms the ABCL
+parser understands.
+
+\paragraph{Exercise 1.}
+Define \code{sum-of-squares} with a \code{[:sum values]} handler. Reuse the loop structure,
+but add the square of each number. Check that an empty list returns zero.
+Compare your reasoning with Section~\ref{sol:squares}.

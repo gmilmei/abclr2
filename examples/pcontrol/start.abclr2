@@ -1,0 +1,33 @@
+;;; -*- Mode:ABCL1 -*-
+;;; start.abclr2
+;;; Compilation and loading instructions for the parallelism control
+;;; metasystem.
+
+;; metasystem
+(comp "para-monitor")
+(comp "pqueue-eval")
+(comp "priori-meta")
+(comp "pcontrol-group")
+
+;; application objects
+(comp "fib")
+(comp "qsort")
+
+;; metasystem
+(inc "para-monitor")
+(inc "pqueue-eval")
+(inc "priori-meta")
+(inc "pcontrol-group")
+
+;; application objects
+#|
+(inc "fib")
+[test-pc <== [:start 10 0]]
+[test-np <== [:start 10 0]]
+
+(inc "qsort")
+[a := [sample-gen 100]]
+[test-pc <== [:start a 100 0]]
+[test-np <== [:start a 100 0]]
+|#
+

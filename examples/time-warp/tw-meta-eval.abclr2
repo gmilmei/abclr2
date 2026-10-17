@@ -1,0 +1,72 @@
+;;; Time Warp: a Metaobject for an Evaluator
+;;; Feb. 16, 1992 by MASUHARA, H.
+;;; Jul. 31, 1992 modified along to the change of script handling.
+
+[object TW-meta-eval-gen
+ (meta-gen non-reifying-meta)
+ (script
+  (=> [:new StateSpec LexEnv Scripts Eval GMgr] @ R
+      [object Metaobject
+       (meta-gen non-reifying-meta)
+       (state [queue := nil]
+              [state := nil]
+              [scriptSet := scripts]
+              [evaluator := Eval]
+              [Group-manager := GMgr]
+              [mode := ':dormant]
+	      [counter := 0]) 
+       (script
+	(=> :count !counter)
+	(=> :reset-counter [counter := 0])
+        (=> [:message Message Reply Sender]
+	    [counter := (1+ counter)]
+            (if (= (length Message) 8) ; [Tag Exp Env Id Gid Eval Out LVT]
+              [queue <= [:enq [(eighth Message) Message Reply Sender]]]
+              [queue <= [:enq [0 Message Reply Sender]]])
+            (when (eq mode ':dormant)
+              [mode := ':active]
+              [Me <= :begin]))
+        (=> :begin
+	    #+COMMENT
+            (format t "~&***QUEUE=~S"
+		    (mapcar #'(lambda (entry)
+				(list (first entry)
+				      (fourth (second entry))))
+			    [queue <== :listify]))
+            (match [queue <== :deq]
+              (is [LVT Message Reply Sender]
+                  ;; (declare (ignore LVT))
+                  (match (find-script Message Reply Sender scriptSet)
+                    (is [Bindings ScriptBody]
+                        [evaluator 
+                          <= [:do
+                              ScriptBody [env-gen <== [:new Bindings state]]
+                              Me Group-manager evaluator]
+                          @ [cont _
+                             [Me <= :end]]])
+                    (otherwise
+                     (warn "~S cannot handle the message ~S"
+                           [den Me] Message))))))
+        (=> :end
+            (if (not [queue <== :empty?])
+              [Me <= :begin]
+              [mode := ':dormant]))
+        (=> :queue !queue)
+        (=> [:set-scheduler q] [queue := q])
+        (=> [:init s] [state := s])
+        )]
+;; PORT-BEGIN: Set the known owner before initialization; NRM state remains opaque.
+;; PORT-ACTIVE
+       (setf (r2sys::object-data-gid [den Metaobject]) GMgr)
+;; PORT-END
+       [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+                           LexEnv Metaobject GMgr Eval]
+             @ [cont initValues
+                [Metaobject 
+                 <= [:init 
+                     [env-gen 
+                       <== [:new (pairlis (stateSpec-varNames stateSpec)
+                                          initValues)
+                                 LexEnv]]]]
+                 [R <= Metaobject]]]
+       ))]

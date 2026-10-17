@@ -1,0 +1,10 @@
+; Loaded from generated Lisp and from a strictly newer FASL in separate phases.
+[object serialization-target
+ (state [mode := :idle])
+ (script
+  (=> :value !mode)
+  (=> :case (case mode (:idle [mode := :changed])) !mode)
+  (=> :reset [mode := :idle] !mode)
+  (=> :macro !(serialization-change))
+  (=> :distinct !(serialization-distinct))
+  (=> :identity !(serialization-identity)))]

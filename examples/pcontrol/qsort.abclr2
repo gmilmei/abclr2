@@ -1,0 +1,133 @@
+;; -*- Mode: ABCL1; -*-
+;;
+;; Memo: When I wrote this quick-sorting object, DO form had not been 
+;; implemented.  Therefore, this object sends messages itself for looping.
+;; Currently, DO form has been implemented, and this object can be
+;; rewritten with the form. (But I do not have enough time to do so....)
+
+[object qsort-gen-gen
+  (script
+   (=> [:new qsort-gen-priority]
+       ![object qsort-gen
+	  (group pcontrol)
+	  (priority qsort-gen-priority)
+	  (script
+	   (=> [:new array left right]
+	       ![object qsort
+		  (priority (- right left))
+		  (state [pivot := nil]
+			 [i := nil]
+			 [j := nil]
+			 [reply := nil]
+			 [wait := t])
+		  (script
+		   (=> :start @ Re
+		       (if (< left right)
+			   (progn 
+			     [pivot := (aref array (floor (+ left right) 2))]
+			     [i := left]
+			     [j := right]
+			     [reply := re]
+			     [Me <= :scan-left])
+			   (progn !:fin
+				  [p-monitor <= :object-dead])))
+		   (=> :scan-left
+		       (if (< (aref array i) pivot)
+			   (progn [i := (1+ i)]
+				  [Me <= :scan-left])
+			   [Me <= :scan-right]))
+		   (=> :scan-right
+		       (if (> (aref array j) pivot)
+			   (progn [j := (1- j)]
+				  [Me <= :scan-right])
+			   [Me <= :test-swap]))
+		   (=> :test-swap
+		       (when (<= i j)
+			 (let ((tmp (aref array i)))
+			   (setf (aref array i) (aref array j))
+			   (setf (aref array j) tmp))
+			 [i := (1+ i)]
+			 [j := (1- j)])
+		       (if (<= i j)
+			   [Me <= :scan-left]
+			   (progn
+			     [[qsort-gen <== [:new array left j]]
+			      <= :start @ Me]
+			     [[qsort-gen <== [:new array i right]]
+			      <= :start @ Me])))
+		   (=> :fin
+		       (if wait
+			   [wait := nil]
+			   (progn [reply <= :fin]
+				  [p-monitor <= :object-dead]))))]))]))]
+
+[object sample-gen
+  (meta-gen non-reifying-meta)
+  (state [a := nil])
+  (script
+   (=> [:new len] @ R
+       [a := (make-array len)]
+       [Me <= [:set-element len] @ R])
+   (=> [:set-element 0]
+       !a)
+   (=> [:set-element index] @ R
+       (setf (aref a (1- index)) (random 100))
+       [Me <= [:set-element (1- index)] @ R]))]
+
+[object test-pc
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:start array size]
+       (temporary [a := (make-array size :initial-contents array)]
+		  [qsort-gen := [qsort-gen-gen <== [:new 0]]]
+		  [afile := (format nil "qsort-active-pc-~D"
+				    size)]
+		  [ofile := (format nil "qsort-object-pc-~D"
+				     size)])
+       [[meta [pcontrol <== :evaluator]]
+	<= [:set-queue [pqueue-gen <== [:new #'< :key #'first]]]]
+       (format t "starts ~%")
+       [p-monitor <= :reset]
+       [p-monitor <= [:monitor
+		      (make-pathname ;;:directory ":/home/users/masuhara/"
+				     :name afile
+				     :type "log")
+		      (make-pathname ;;:directory ":/home/users/masuhara/"
+				     :name ofile
+				     :type "log")]]
+       [[qsort-gen <== [:new a 0 (1- size)]] <== :start]
+       [p-monitor <= :stop]
+       (format t "Finished~%")
+       !a))]
+
+[object test-np
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:start array size]
+       (temporary [a := (make-array size :initial-contents array)]
+		  [qsort-gen := [qsort-gen-gen <== [:new 0]]]
+		  [afile := (format nil "qsort-active-np-~D"
+				    size)]
+		  [ofile := (format nil "qsort-object-np-~D"
+				     size)])
+       [[meta [pcontrol <== :evaluator]]
+	<= [:set-queue [queue-gen <== :new]]]
+       (format t "starts ~%")
+       [p-monitor <= :reset]
+       [p-monitor <= [:monitor
+		      (make-pathname ;;:directory ":/home/users/masuhara/"
+				     :name afile
+				     :type "log")
+		      (make-pathname ;;:directory ":/home/users/masuhara/"
+				     :name ofile
+				     :type "log")]]
+       [[qsort-gen <== [:new a 0 (1- size)]] <== :start]
+       [p-monitor <= :stop]
+       (format t "Finished~%")
+       !a))]
+
+[object init
+  (meta-gen non-reifying-meta)
+  (script
+   (=> size
+       [a := [sample-gen <== [:new size]]]))]

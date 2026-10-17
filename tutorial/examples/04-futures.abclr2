@@ -1,0 +1,24 @@
+;;; Run from the repository root; paths are deliberately explicit.
+(inc-lib "lib/future" :use-source t)
+
+[object range-server
+ (script
+  (=> [:range first last]
+      (do ((i first (+ i 1)))
+          ((> i last))
+        !i)
+      !:done))]
+
+[object range-client
+ (script
+  (=> [:collect first last]
+      (temporary [stream := (make-future)]
+                 [items := nil]
+                 [value := nil])
+      [range-server <= [:range first last] $ stream]
+      [value := (next-value stream)]
+      (do ()
+          ((eq value :done))
+        [items := (cons value items)]
+        [value := (next-value stream)])
+      !(reverse items)))]

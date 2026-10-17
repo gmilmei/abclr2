@@ -1,0 +1,186 @@
+\subsubsection{A Complete Two-Object Rollback Cascade}
+\label{sec:tw-cascade}
+
+The original three-car run does not force recovery. To see the original
+machinery actually restore state, replay inputs, and cancel an output,
+use the supplemental application in
+\filepath{tutorial/examples/08-timewarp-rollback.abclr2}.
+It introduces no new simulation algorithm: the unchanged original
+loader, metaobjects, evaluator, environments, and history queues do the
+recovery. The new application merely makes their effects easy to inspect.
+
+The sink stores the latest received value and a reverse-order trace:
+
+\wholelisting[firstline=6,lastline=12]{tutorial/examples/08-timewarp-rollback.abclr2}
+
+The source adds each input to its total and sends that total to the sink
+one simulated unit later:
+
+\wholelisting[firstline=14,lastline=20]{tutorial/examples/08-timewarp-rollback.abclr2}
+
+Neither application script contains an undo operation. Assignment goes
+through the original environment protocol; the timed send is recorded
+by the original evaluator. The trace uses \code{cons} to construct a new
+list and rebinds \code{trace}, rather than destructively modifying a list
+shared with earlier snapshots. That distinction matters for shallow
+binding-history restoration.
+
+\paragraph{Arrange a late event deliberately.}
+Run \code{make -C tutorial timewarp-check}; the runner copies the
+original directory and this supplemental file into
+\filepath{build/timewarp-tests/}. For an interactive reproduction,
+start a fresh interpreter in that prepared directory and load
+\code{(inc "08-timewarp-rollback" :use-source t)}.
+The example loads \code{tw-load} and resets the rollback monitor before
+creating the two objects. It initially uses Lowest-LVT-first scheduling.
+
+Inject a time-10 event, let the finite computation settle, and only
+then inject a time-5 event:
+
+\begin{codeblock}
+\begin{lstlisting}
+[[meta rollback-source] <= [:message [:add 10] nil nil 0 10]]
+; Source total becomes 10 at LVT 10.
+; Sink receives (:VALUE 10) at LVT 11.
+
+[[meta rollback-source] <= [:message [:add 1] nil nil 0 5]]
+; Source rolls back; its earlier output is cancelled at the sink.
+; Final source total = 11, sink value = 11.
+\end{lstlisting}
+\end{codeblock}
+
+These are deliberate meta-level event injections, not ordinary
+application requests. The two \code{nil} fields are the initial reply
+destination and sender; the final numbers are \code{VST = 0} and
+\code{VRT = 10} or 5. No application reply is requested. The source's
+subsequent timed sends name the source object as sender automatically.
+The current interactive top-level drains runnable work after each
+entered form. The checks exploit that boundary to ensure the first
+output has \emph{already executed}, rather than merely waiting in the
+sink's queue. This staged arrival order is a test arrangement, not a
+promise that arbitrary concurrent clients see the same schedule.
+
+\paragraph{Follow the histories, not just the final sum.}
+After the first injection, the source has saved its initial frame at
+time 0, set \code{LVT = 10}, and changed \code{total} from 0 to 10.
+Its output history contains
+\code{[rollback-sink [:value 10] nil 10 11]}.
+The sink has likewise saved its initial frame at 0 before processing
+time 11. Its value is 10 and its trace is \code{((11 10))}.
+
+Now the late positive event has \code{VRT = 5 < LVT = 10}.
+The source's \code{:begin-tw} handler takes the recovery branch.
+It restores the saved frame at 0, so both its local time and total
+return to zero. Its input queue has already dequeued the offending
+time-5 event and the previous time-10 event. Rewinding to 5 makes both
+available for replay, sorted by receive time. It must not discard the
+late event after using it to trigger recovery.
+
+The source extracts outputs whose send time is at least 5. The old
+\code{[:value 10]} send qualifies because its send time was 10;
+its receive time 11 is preserved in the cancellation envelope.
+Here is the original anti-messenger's active handler:
+
+\wholelisting[firstline=135,lastline=142]{examples/time-warp/tw-meta.abclr2}
+
+The first pattern ends recursion on an empty history with \code{:fin}.
+The second uses \code{bracket*} to separate one output record from the
+remaining history. It sends directly to the target's metaobject,
+changing the envelope's tag to \code{:anti-message}, but preserving
+message, reply, sender identity, and both timestamps. Then it processes
+the remaining records with the same \code{R}.
+
+The source waits for the anti-messenger's completion before sending
+itself \code{:end}. That completion means the cancellation requests
+were issued, not that every receiving simulation object has completed
+its own rollback. The target sends are asynchronous.
+In this checked staged run, the sink receives:
+
+\begin{codeblock}
+\begin{lstlisting}
+[:anti-message [:value 10] nil rollback-source 10 11]
+\end{lstlisting}
+\end{codeblock}
+
+Because the positive event has already executed, it is in the sink's
+\code{old} input history, not its pending queue. The anti-message
+therefore cannot simply remove a pending positive event. The sink
+dequeues the anti-message and rolls back to a frame strictly before
+11: its initial frame at 0. This restores \code{value = 0} and
+\code{trace = nil}. Rewinding the input history brings the old positive
+and its anti-message together; \code{remove-anti} removes that pair,
+so the invalid \code{[:value 10]} event is not replayed.
+The sink has no timed outputs of its own to cancel in this application.
+
+The source then processes its revised inputs at 5 and 10. At 5 it
+adds 1 to zero and sends value 1 for receive time 6. At 10 it adds
+10 to that corrected state and sends value 11 for receive time 11.
+These are new outputs of replayed work, not the old output being
+retained under another name. The sink's revised history is therefore:
+
+\begin{center}
+\begin{tabular}{rll}
+\textbf{Receive time} & \textbf{Application event} & \textbf{Resulting sink value}\\\hline
+6 & \code{[:value 1]} & 1\\
+11 & \code{[:value 11]} & 11\\
+\end{tabular}
+\end{center}
+
+The final reverse trace is \code{((11 11) (6 1))}; the speculative
+\code{(11 10)} entry has disappeared. The source's final local time is
+10, the sink's is 11, and the shared monitor records two rollbacks:
+one caused by a late positive input, one caused by cancellation of
+already processed output. Console cancellation and rollback lines
+remain visible: restoring simulation bindings does not erase printing.
+
+\paragraph{Inspect without injecting another application event.}
+The original \code{TW-meta} does not implement an application-state
+query. Its own ordinary metaobject can expose the simulation machinery's
+bindings. For example:
+
+\begin{codeblock}
+\begin{lstlisting}
+[source-meta-state := [[meta [meta rollback-source]] <== :state]]
+[source-state := [source-meta-state <== [:value-of 'state]]]
+[source-state <== [:value-of 'total]] ; => 11
+[source-meta-state <== [:value-of 'LVT]] ; => 10
+\end{lstlisting}
+\end{codeblock}
+
+The inner \code{meta} selects the simulation object's interpreter;
+the outer selects that interpreter's ordinary metaobject.
+Its \code{:state} reply is an environment whose binding named
+\code{state} points to the undoable \emph{application} environment.
+\code{LVT}, \code{pqueue}, and \code{output-history} instead belong
+to the simulation metaobject's own frame. Do not confuse these two
+state environments or treat the returned objects as copied snapshots.
+
+\paragraph{Evidence and limits.}
+Twelve assertions run for this cascade with each evaluator scheduler,
+in separate fresh processes: Lowest-LVT-first and FIFO. They check
+the speculative values and output record, corrected values and trace,
+both final local times, the replacement output history, the replayed
+source input history, the sink's retained corrected inputs, empty
+pending event queues, and the two-rollback counter. Transcript
+assertions require the cancellation and both restoration reports.
+The finite result is the same under these two checked arrangements;
+the test is not a performance comparison.
+
+This closes the gap between isolated history tests and a concrete
+metaobject/evaluator recovery cascade. It does not certify every
+cancellation arrival order, simultaneous or duplicate event,
+zero-time rollback boundary, or timestamped now-type send. In
+particular, output-history matching is based on the original event
+fields rather than unique event identifiers. The same original
+\code{remove-anti} helper compares envelope tails, not the tags;
+do not infer a general duplicate-delivery policy from this one pair.
+The experimental NR/NS evaluator variants remain separate cases.
+
+\paragraph{Check your understanding.}
+Why is restoring only the source's total insufficient? Its speculative
+output has already changed the sink. Why is the final value 11 rather
+than 1? The time-10 input is replayed after the new time-5 input.
+Why does the sink not end with both time-11 values in its trace?
+The old input is cancelled during rewind and its earlier state effect
+is rolled back. Does waiting for the anti-messenger join the entire
+cascade? No; it joins cancellation issuance, not all recipient work.

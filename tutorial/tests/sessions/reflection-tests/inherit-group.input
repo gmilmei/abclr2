@@ -1,0 +1,40 @@
+(defun reflection-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&REFLECTION-PASS ~A~%" name)
+  (error "REFLECTION-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/reflection-tests/inherit" :use-source t)
+(inc-lib "@ROOT@/build/reflection-tests/lib/copy" :use-source t)
+[group inherit-a (meta-gen inherit-meta-gen)]
+[group inherit-b (meta-gen inherit-meta-gen)]
+[object group-bird (group inherit-a)
+ (script (=> :can-fly? !t) (=> :has-feather? !t) (=> :owner !Group))]
+[object group-emu (group inherit-a)
+ (script (=> :can-fly? !nil)
+         (=> Any @ Reply from Sender (inherit Any Reply Sender group-bird)))]
+[object other-bird (group inherit-b)
+ (script (=> :owner !Group)
+         (=> :spawn ![object (script (=> :owner !Group))]))]
+[object cross-emu (group inherit-a)
+ (script (=> Any @ Reply from Sender (inherit Any Reply Sender other-bird)))]
+(reflection-check "bird-group" [group-of group-bird] inherit-a)
+(reflection-check "emu-group" [group-of group-emu] inherit-a)
+(reflection-check "other-source-group" [group-of other-bird] inherit-b)
+(reflection-check "den-meta-identity" [den [meta group-emu]] group-emu)
+(reflection-check "meta-group-is-not-application-group" (eq [group-of [meta group-emu]] inherit-a) nil)
+(reflection-check "source-specific-method" [group-bird <== :can-fly?] t)
+(reflection-check "local-override-preserved" [group-emu <== :can-fly?] nil)
+(reflection-check "inherited-method-preserved" [group-emu <== :has-feather?] t)
+(reflection-check "inherited-execution-group" [group-emu <== :owner] inherit-a)
+(reflection-check "source-execution-group" [other-bird <== :owner] inherit-b)
+(reflection-check "cross-group-method-uses-recipient-context" [cross-emu <== :owner] inherit-a)
+[inherited-child := [cross-emu <== :spawn]]
+(reflection-check "child-created-in-recipient-group" [group-of inherited-child] inherit-a)
+(reflection-check "child-execution-group" [inherited-child <== :owner] inherit-a)
+(reflection-check "source-group-not-rebound" [group-of other-bird] inherit-b)
+[emu-copy := [copier <== [:copy group-emu]]]
+(reflection-check "copy-group" [group-of emu-copy] inherit-a)
+(reflection-check "copy-identity" (eq emu-copy group-emu) nil)
+(reflection-check "copy-inherited-context" [emu-copy <== :owner] inherit-a)
+(reflection-check "copy-local-override" [emu-copy <== :can-fly?] nil)
+(format t "~&REFLECTION-END~%")
+:q

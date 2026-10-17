@@ -1,0 +1,54 @@
+-*- Mode: Text; -*-
+
+		      ABCL/R2 Installation Guide
+			     Aug. 4, 1992
+			     Sep. 4, 1998
+
+This document describes how to make ABCL/R2 system on KCl, AKCl,
+CMU-CL, and Allegro-CL.
+
+======================================================================
+|* Note to the `Allegro CL 5.0beta for Linux' users.
+| 
+| In the distributed image of ACL5.0beta, the `case mode' is set to
+| `:case-sensitive-lower'.  To compile ABCL/R2 system, you have to
+| change this to `:case-insensitive-upper'.  Follow the instructions in
+| doc/casefaq.txt in the ACL distribution directory, and create a new
+| image in which the case mode is :case-insensitive-upper before
+| compiling ABCL/R2 system.
+======================================================================
+
+1. Specify your environment
+
+1.1.  The Makefile
+	Edit the values of variables LISP and BIN to meet your
+environment.  For example, if you are using CMU-CL, and want to store
+binary files of ABCL/R2 at /home/users/foo/bin, these values would be:
+	LISP	= lisp
+	BIN	= /home/users/foo/bin
+where `lisp' is an executable name of CMU-CL.
+
+1.2. File `src/defabclr2.lsp'
+	Edit the default value of variable `*default-abclr2-library-
+pathnames*' to contian the default library direcotry of ABCL/R2.  For
+example, it would be:
+	(defvar *default-abclr2-library-pathnames*
+	  (list "" "/usr/local/src/abclr2/lib/"))
+where `/usr/local/src/abclr2/lib' is a directory where the default
+library programs are stored.  (A nullstring at the first element of
+the list means run-time current directory.)
+
+2. Compile
+	Type "make", then the system is compiled. After the
+compilation, you have "saved_abclr2", which is dumped image of the
+system, at "src" directory.
+
+3. Install
+	Type `make install-kcl' (for KCl and AKCl user), `make
+install-cmu' (for CMU-CL user), or `make install-acl' (for Allegro-CL
+user) then you have a file named `abclr2' at a directory pointed by
+the value of `BIN' in Makeflie.
+
+4. Run
+	Execute `abclr2' just created.  Enjoy.
+

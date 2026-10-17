@@ -1,0 +1,9 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc "@ROOT@/build/group-tests/interrupt" :use-source t)
+[object audit-interrupt (group with-interrupt) (state [born-group := [group-of Me]]) (script (=> :owner !Group) (=> :born !born-group))]
+(group-context :interrupt [audit-interrupt <== :owner] with-interrupt)
+(group-check-nrm :interrupt audit-interrupt with-interrupt [group-of meta-with-interrupt-gen])
+(group-check :initializer-owner [audit-interrupt <== :born] with-interrupt)
+(format t "~&GROUP-END~%")
+:q

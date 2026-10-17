@@ -1,0 +1,12 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc "@ROOT@/build/group-tests/examples/misc/MCP" :use-source t)
+[object audit-counter (group Meta-circular) (state [n := 0])
+ (script (=> :owner !Group) (=> :increment [n := (1+ n)] !n) (=> :value !n))]
+(group-check-point :mcp audit-counter Meta-circular)
+(group-check "mcp-context" [audit-counter <== :owner] Meta-circular)
+(group-check "mcp-identity" [den [meta audit-counter]] audit-counter)
+(group-check "mcp-increment" [audit-counter <== :increment] 1)
+(group-check "mcp-state" [audit-counter <== :value] 1)
+(format t "~&GROUP-END~%")
+:q

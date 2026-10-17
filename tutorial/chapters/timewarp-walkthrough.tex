@@ -1,0 +1,302 @@
+\subsection{Time Warp: Virtual Time and Recovering from Late Events}
+\label{sec:timewarp}
+
+Pcontrol changed the order in which pending computations run. Here we
+also give application events simulated times and recover when their
+arrival order disagrees with that history.
+The \filepath{examples/time-warp/} directory implements a reflective
+simulation experiment. A \emph{discrete event simulation} advances by
+processing events such as a car arriving or a washer becoming available.
+Each event has a simulated time. Processing an event at time 10 does
+not require waiting ten real seconds.
+
+Time Warp is an \emph{optimistic} approach: an object processes available
+events without first proving that no earlier event will arrive later.
+If one does arrive, the object must restore an earlier state and redo
+work. This is \emph{rollback}, not an ordinary error retry: the computation
+may have been correct for the events known then, but its history was
+incomplete. Reflection lets this example put time and recovery policy
+in the execution machinery rather than in every application handler.
+
+\subsubsection{Local Time, Receive Time, and Three Queues}
+
+\code{LVT}, the local virtual time, belongs to a simulation object's
+metaobject. The custom evaluator makes that value available as the
+pseudo-variable \code{LVT} in its scripts. A timed send has the form:
+
+\begin{lstlisting}
+[target <= message @ reply :vrt receive-time]
+\end{lstlisting}
+
+The evaluator sends the target metaobject a six-field envelope:
+
+\begin{lstlisting}
+[:message Message Reply Sender VST VRT]
+\end{lstlisting}
+
+\code{VST} is the sender's virtual send time; \code{VRT} is the
+intended virtual receive time. Neither is a wall-clock timestamp.
+The application still matches \code{Message}, not this entire envelope.
+The explicit reply destination remains a separate field.
+
+Distinguish three queues. A simulation metaobject has an ordinary
+message queue and an undoable, time-ordered event queue.
+Separately, the evaluator's own metaobject has a queue of evaluation
+requests. Lowest-LVT-first versus FIFO changes this third queue,
+not the timestamp semantics of the event queue.
+An ordinary send without \code{:vrt} goes through the ordinary
+message path; the source does not automatically timestamp every send.
+For example, the washer's self-messages advance its work loop without
+advancing virtual time.
+
+\subsubsection{Run the Original Car-Wash Experiment}
+\label{sec:tw-loading}
+
+As with pcontrol, start in a scratch copy of the example directory:
+\filepath{tw-load.abclr2} uses relative file names and creates
+translations and compiled files. The automated check prepares the copy:
+
+\begin{lstlisting}
+make -C tutorial timewarp-check
+\end{lstlisting}
+
+In a fresh interpreter whose working directory is that copy:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "tw-load" :use-source t)
+[starter <== [:start [3 4 6] 3]]
+; Runs Lowest LVT first, then FIFO.
+; Prints each run's RESULT and counters.
+; Replies (:PRIORI (:ROLLBACK ...) (:EXPS ...)
+;          :FIFO   (:ROLLBACK ...) (:EXPS ...)).
+\end{lstlisting}
+\end{codeblock}
+
+\filepath{tw-load.abclr2} first compiles ten files, then incorporates
+those same ten files in the same order. Compilation alone does not run
+their object definitions (Section~\ref{sec:loading}). Read the loading
+sequence as four stages, rather than opening an arbitrary helper first:
+
+\begin{longtable}{L{0.44\textwidth}L{0.46\textwidth}}
+\textbf{Files, in loader order} & \textbf{What the stage supplies}\\\hline
+\endhead
+\filepath{tw-undo-env}, \filepath{tw-undoable-pqueue},
+\filepath{tw-output-history} & State frames, replayable input, and
+speculative-output history for recovery.\\
+\filepath{tw-pqueue}, \filepath{tw-monitor} & Evaluator work queues and
+the rollback counter, distinct from the replayable input queue.\\
+\filepath{tw-meta}, \filepath{tw-meta-eval}, \filepath{tw-eval} &
+Application dispatch/recovery, scheduling of evaluator requests, and
+expression evaluation with time/output context.\\
+\filepath{tw-group}, \filepath{tw-wash1} & Connect the machinery, then
+define the timed car-wash application and its controllers.\\
+\end{longtable}
+
+The names in this table omit \code{.abclr2}, just as the loader does.
+It does not load the earlier \code{tw-wash0}, the independent
+\code{tw-test}, or the unfinished \code{tw-scheduler} fragment.
+
+The service times are 3, 4, and 6 simulated units; the last argument
+requests three cars. \code{starter} compares scheduling policies,
+whereas \code{starter-1} performs one simulation. Its factories
+create a new attendant and new washers for each run.
+The returned report contains counters, not the car assignment list.
+That list is printed as \code{RESULT=(:FIN (...))}.
+Do not assert particular expression counts as a language rule.
+
+\filepath{tw-wash0.abclr2} is an earlier, ordinary-message version:
+two queues pair waiting cars with waiting washers, and a two-signal
+join completes the starter's request. Its own comment says it has
+no rollback or Time Warp; its \code{service-time} argument is not
+used to model a timed completion. The loader instead selects
+\filepath{tw-wash1.abclr2}, which adds timed events and explicit
+simulation completion.
+
+\subsubsection{Follow Three Cars Through the Application}
+\label{sec:tw-application}
+
+\code{washers-gen} numbers the washers from zero. It initially
+announces washer 0 at virtual time 0, washer 1 at time 1, and washer
+2 at time 2. \code{starter-1} injects car arrivals at times 1, 2,
+and 3, followed by an arrival sentinel \code{:fin} at time 4.
+These initial injections go directly to the attendant's metaobject
+with \code{:VRT}; they are not ordinary application messages to
+the attendant.
+
+The attendant stores pairs \code{[time car]} and \code{[time washer]}.
+When both lists are nonempty, it removes their first entries and
+starts washing at the maximum of those two times:
+
+\wholelisting[firstline=79,lastline=87]{examples/time-warp/tw-wash1.abclr2}
+
+This maximum prevents service before either resource is available.
+\code{job-record} stores washer, car, and \emph{start} time, not finish
+time. Each washer executes a short self-message loop to supply runtime
+work, then announces its next availability at
+\code{(+ service-time LVT)}:
+
+\wholelisting[firstline=16,lastline=20]{examples/time-warp/tw-wash1.abclr2}
+
+For the checked small run, the assignments are:
+
+\begin{center}
+\begin{tabular}{rrrr}
+\textbf{Washer} & \textbf{Car} & \textbf{Start} & \textbf{Available again}\\\hline
+0 & 1 & 1 & 4\\
+1 & 2 & 2 & 6\\
+2 & 3 & 3 & 9\\
+\end{tabular}
+\end{center}
+
+This is a simulated-time trace, not the order in which console lines
+must appear. \code{job-record} uses \code{cons}, so the printed
+assignment list is in reverse recording order.
+After the sentinel, the attendant sets \code{finished} and waits
+until all washers are available before sending its result to
+\code{starter-1}. The latter joins that result with its own
+end-of-injection signal using \code{wait-flag}. The final reply
+therefore does not mean merely that all arrival messages were sent.
+
+\subsubsection{What Happens When an Earlier Event Arrives Late?}
+\label{sec:tw-recovery}
+
+Open \filepath{tw-meta.abclr2}. The ordinary path resembles the
+metaobjects read earlier: enqueue, find a script, evaluate it,
+and continue on \code{:end}. The timed path uses \code{:begin-tw}.
+For a positive event with \code{VRT >= LVT}, it saves the current
+state frame, sets \code{LVT} to \code{VRT}, and evaluates the
+selected script with output-history and time added to the context.
+
+Suppose an object has processed time 10 and then receives an event
+for time 5. Continuing at 10 would violate the intended event
+history. The other branch requests coordinated recovery:
+
+\wholelisting[linerange={96-101,103-105}]{examples/time-warp/tw-meta.abclr2}
+
+\begin{enumerate}
+  \item The undoable environment restores a saved frame from before
+        the offending receive time and returns its saved time.
+  \item The input queue rewinds previously dequeued events at or after
+        the cutoff so they can be considered again.
+  \item The output history supplies sends made at or after that
+        cutoff. \code{anti-messenger} sends matching cancellation
+        envelopes to their destinations.
+  \item Dispatch resumes, allowing the revised history to be processed.
+\end{enumerate}
+
+An \emph{anti-message} is a cancellation record, not an application
+request to undo a particular business operation. The queue can remove
+a matching positive event that has not yet executed. Cancellation of
+already processed work can require the receiving object to roll back,
+which can propagate recovery further.
+The original queue compares message contents, reply, sender, and times;
+it does not introduce a separate globally unique event identifier.
+Read these as the experiment's concrete protocols, not a complete
+general-purpose distributed simulation framework.
+
+\subsubsection{Read the Three Histories Separately}
+\label{sec:tw-histories}
+
+In \filepath{tw-undo-env.abclr2}, \code{:push} saves a frame and
+copies its association-list pairs before later binding updates.
+\code{backFrame} selects a saved time strictly less than the rollback
+cutoff. For a component trace, start with \code{x = 0}, save at 0,
+set \code{x = 5}, save at 10, and set \code{x = 8}.
+Rollback to 5 restores the frame at 0 and \code{x = 0}.
+It does not interpolate a value between snapshots.
+
+This is a shallow copy of binding pairs, not a deep copy of arbitrary
+Lisp objects stored in them. Updating a binding through \code{:set}
+is different from mutating an array or cons cell reachable through
+that binding. Updates delegated to an outer lexical environment also
+do not become part of the local frame's saved history.
+Do not assume arbitrary host side effects are reversible.
+
+\filepath{tw-undoable-pqueue.abclr2} keeps pending events in
+\code{queue} and dequeued events in \code{old}. After processing
+events at times 2 and 4, rollback to 3 makes the event at 4 available
+again while retaining the earlier history. It also contains
+positive/anti-message cancellation and sorting helpers.
+Some alternative enqueue code is guarded by \code{\#+COMMENT};
+read the active handlers rather than combining all printed alternatives.
+
+\filepath{tw-output-history.abclr2} records the target, message,
+reply destination, send time, and receive time. Its cutoff compares the
+record's \emph{send time}, the fourth field, not its receive time.
+For sends at times 1 and 5, a cutoff of 4 extracts the second send
+even if its receive time is 20. Extraction removes those records
+from the retained history. Restoring bindings alone would leave
+such speculative output effects uncorrected.
+
+\input{tutorial/chapters/timewarp-rollback}
+
+\subsubsection{The Evaluator and a Source Reading Route}
+\label{sec:tw-evaluator}
+
+\filepath{tw-group.abclr2} connects \code{TW-meta-gen} and
+\code{TW-eval-gen}. Scheduler replacement transfers the old
+evaluator queue's entries to the new queue before installing it.
+The queues in \filepath{tw-pqueue.abclr2} support \code{:enq},
+\code{:deq}, \code{:listify}, and \code{[:set ...]} for that purpose.
+The priority variant sorts by an entry's first field; the normal
+variant appends entries for FIFO order.
+
+\filepath{tw-meta-eval.abclr2} wraps evaluation requests as
+\code{[LVT Message Reply Sender]} when the message has the
+extended eight-field context; other requests receive key zero.
+Its counter counts incoming evaluation requests, not cars,
+virtual time units, or elapsed execution time.
+\filepath{tw-monitor.abclr2} separately counts rollback announcements.
+
+Read the first evaluator definition in \filepath{tw-eval.abclr2}
+before its variants. It recognizes compiled expressions, variable
+lookup, sends, object/group creation, sequential execution, and
+argument-list evaluation. The added \code{Outputs} and \code{LVT}
+fields carry the simulation context. A cache indexed by
+\code{Id} supplies those fields to subsequent requests lacking
+them. Timed past-type sends both construct a timestamped envelope
+and record the output; ordinary sends use their separate path.
+
+The same file also defines non-reifying and no-scheduling variants,
+selected by the experimental \code{NR} and \code{NS} controllers
+in \filepath{tw-wash1.abclr2}. They are not aliases for the two
+policies compared by \code{starter}; Section~\ref{sec:tw-variants}
+explains their separate setup and evaluator architecture. Timestamped now-type sends need separate
+validation; the car-wash application uses timed past-type sends.
+
+\filepath{tw-test.abclr2} supplies independent countdown objects
+\code{foo}, \code{bar}, and \code{baz}. Their timed self-sends
+increase virtual receive time by 1, 2, and 3 respectively.
+Their \code{start} object's handler dispatches the three requests;
+it has no final application reply. Do not call it with \code{<==}
+and assume it is a completion join.
+\filepath{tw-scheduler.abclr2} is an unfinished object-definition
+fragment and is not loaded by \code{tw-load}. The operative scheduler
+objects come from \code{tw-pqueue}, not that fragment.
+
+\input{tutorial/chapters/timewarp-variants}
+
+\paragraph{Check your understanding.}
+If a washer starts at time 2 and has service time 4, does its self-loop
+advance its virtual time ten times?
+\emph{Answer:} No. The ordinary self-messages do not supply timestamps;
+the next timed availability is at 6.
+Why restore both input and output histories?
+\emph{Answer:} Inputs may need replay after state restoration, while
+outputs from discarded work may already have affected other objects.
+
+\paragraph{What the checks establish.}
+Forty checks run in isolated scratch sessions: twelve exercise
+binding restoration, input replay, pending cancellation, and output
+history extraction; four check the car-wash report and nonnegative
+rollback counters; twenty-four check the two-object rollback cascade
+under both evaluator scheduling policies. The transcript additionally checks the three
+assignment records under both scheduling policies.
+Files stay in \filepath{build/timewarp-tests/}.
+The small car-wash case can complete without any rollback, so its
+success does not demonstrate a complete rollback cascade.
+Section~\ref{sec:tw-cascade} supplies a dedicated recovery integration
+check. Other cancellation arrival orders remain outside these recovery
+checks; the separate variant probes in Section~\ref{sec:tw-variants}
+check small NR/NS runs, not arbitrary rollback schedules.

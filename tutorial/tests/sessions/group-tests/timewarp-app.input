@@ -1,0 +1,9 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc "tw-load" :use-source t)
+[object audit-tw (group TW-group) (script (=> :owner !Group))]
+(group-check-point :tw-app audit-tw TW-group)
+(group-check "tw-context" [audit-tw <== :owner] TW-group)
+(group-check "tw-identity" [den [meta audit-tw]] audit-tw)
+(format t "~&GROUP-END~%")
+:q

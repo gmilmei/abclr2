@@ -1,0 +1,12 @@
+(defun original-check (name actual expected)
+ (if (equal actual expected)
+   (format t "~&ORIGINAL-PASS ~A~%" name)
+   (error "ORIGINAL-FAIL ~A: got ~S expected ~S" name actual expected)))
+[*library-directories* := (list "@ROOT@/build/original-tests/lib/")]
+(inc "@ROOT@/build/original-tests/examples/misc/reify-args" :use-source t)
+(original-check "my-if" [my-if-test <== [:my-if 3]] 2)
+(original-check "ef" [my-if-test <== [:ef 3]] 2)
+(original-check "interrupt" [test-with-interrupt-2 <== [:run 10 3]] "Time is up.")
+(original-check "no-interrupt" [test-with-interrupt-2 <== [:run 10 30]] "Yeah! I did it!")
+(format t "~&ORIGINAL-END reify-args~%")
+:q

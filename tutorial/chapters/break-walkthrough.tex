@@ -1,0 +1,197 @@
+\subsection{Breakpoints: Inspecting a Suspended Lexical Environment}
+\label{sec:break}
+
+Retry repaired a precondition and resent a request; here the application
+deliberately waits while we inspect its current bindings.
+\filepath{examples/misc/break.abclr2} implements an interactive debugger
+in ABCL/R2 itself. It does not invoke the Common Lisp debugger or install
+an operating-system interrupt handler. An application calls a macro,
+waits for a reply, and lets another object inspect its lexical environment
+before execution continues. This makes reflection useful for a concrete
+task rather than merely printing an object's representation.
+
+\subsubsection{Reproduce the Original Session}
+
+Load the debugger before defining code that uses its macro. At the repository
+root, enter the following. The definition of \code{foo} comes from the
+original file's commented session, not from a replacement example.
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "examples/misc/break" :use-source t)
+[object foo
+ (state [x := 0])
+ (script
+  (=> y
+      (temporary [z := (+ x y)])
+      (abclr2-break)
+      !z))]
+[foo <== 123]
+\end{lstlisting}
+\end{codeblock}
+
+The handler binds \code{y} to 123 and computes the temporary \code{z}
+as \code{x + y}, initially 123. The breakpoint now prints an object
+identifier and an \code{Inspect(...)} prompt. Object numbers and generated
+reply-variable names vary between sessions; they are not expected results.
+At this prompt you are talking to the environment inspector, not the
+ordinary \code{ABCL/R2>} reader.
+
+Use the following sequence. For \code{:set}, the next two inputs answer
+the \code{Name =} and \code{Value =} prompts.
+
+\begin{codeblock}
+\begin{lstlisting}
+:l             ; lists Z in the temporary frame
+z              ; prints Z=123
+:u
+:l             ; lists Y and a generated reply binding
+y              ; prints Y=123
+:u
+:l             ; lists X in the application-state frame
+:set
+x
+10
+:d
+:d
+:set
+z
+999
+:r
+0
+\end{lstlisting}
+\end{codeblock}
+
+The first \code{:u} reaches the handler's pattern bindings, and the second
+reaches the object's state. The two \code{:d} commands retrace those steps.
+The resumed handler sends 999, because you changed its current \code{z}.
+The value 0 supplied after \code{:r} is the result of
+\code{(abclr2-break)}, which this handler ignores before executing
+\code{!z}.
+
+Now send \code{[foo <== 123]} again. At the new inspector prompt, enter
+\code{:r}, then \code{t}. The handler returns 133: \code{x} remained 10,
+but a new invocation computed a new temporary \code{z = 10 + 123}.
+This is the original demonstration's distinction between persistent state
+and an invocation-local binding. The inspector changes existing bindings;
+it does not automatically recompute an already calculated \code{z}
+when you change \code{x}.
+
+\subsubsection{The Inspector's Small Command Language}
+
+\begin{longtable}{L{0.25\textwidth}L{0.65\textwidth}}
+\textbf{Input} & \textbf{Effect}\\\hline
+\endhead
+\code{:l}, \code{:list} & List the names in the selected local frame.\\
+\code{:a}, \code{:alist} & Print that frame's association list of names and values.\\
+A variable name & Look up its value, searching outward if necessary;
+print an unbound notice if lookup fails.\\
+\code{:u}, \code{:up} & Select the outer lexical environment, if one exists,
+and remember the current frame.\\
+\code{:d}, \code{:down} & Return to the most recently remembered frame,
+if there is one.\\
+\code{:s}, \code{:set}, \code{:=} & Read a name and a value, then update
+or create that binding in the selected local frame.\\
+\code{:h}, \code{:help}, \code{?} & Print the built-in command help.\\
+\code{:r} & Read a return value, reply to the breakpoint caller, and finish
+the inspector handler.\\
+\end{longtable}
+
+These commands are read by Lisp's \code{read}, but are interpreted by
+the inspector's \code{case}, not evaluated as arbitrary Lisp forms.
+Enter \code{x}, not \code{'x}, when asked for a name. Entering
+\code{(+ 1 2)} as a value supplies a list; it does not calculate 3.
+In particular, \code{:r} is a command followed by a separate value input.
+It is missing from the original printed help, although the loop's
+termination test implements it.
+
+Local listing and outward lookup are different operations. You can look up
+\code{x} while positioned at the temporary frame even though \code{:l}
+there lists only \code{z}. However, \code{:set} uses \code{:set-local},
+not the outward-searching \code{:set} environment operation. Setting
+\code{x} in the temporary frame would introduce a local binding there,
+not update the object's existing state. Navigate to the state frame first
+when you intend the persistent change shown above.
+
+\subsubsection{How the Macro Obtains the Environment}
+
+Read the original monitor:
+
+\wholelisting[firstline=7,lastline=16]{examples/misc/break.abclr2}
+
+The macro at lines 65--66 expands into a now-type request to this monitor.
+It creates an anonymous, empty-script \emph{dummy object} at the call site
+and includes that object, an optional format string, and a list of format
+arguments in the message. The macro uses backquote, comma, and
+comma-at as introduced in the Lisp reading guide: it builds code while
+inserting the caller's forms.
+
+Why create an object that handles no messages? Its state environment
+retains the lexical environment in which it was created.
+\code{[meta dummy-object]} obtains its metaobject;
+the \code{:state} query obtains its state environment; and
+\code{:lexenv} follows that environment's outer link. That link is the
+application environment at the breakpoint. It is a live environment object,
+not a copied map or a snapshot of a machine stack.
+
+The monitor receives the breakpoint request's reply destination as
+\code{R} and its application sender as \code{sender}. It prints that sender,
+then sends \code{[environment nil]} to \code{environment-inspector},
+forwarding \code{@ R}. The initial \code{nil} is an empty navigation
+history. The monitor does not manufacture the final return value or wait
+for a second result: the inspector replies directly to the waiting caller.
+If a format string is present, \code{~?} applies it to the supplied
+argument list to print a contextual message.
+
+\subsubsection{Navigation, Mutation, and Resume}
+
+The inspector explicitly selects \code{non-reifying-meta}. Its handler is
+compiled for the non-reifying execution path rather than interpreted by a
+custom reflective evaluator. It can still send messages to the environment
+objects it was given. Non-reifying does not mean that the supplied
+environment has become inaccessible.
+
+\wholelisting[firstline=21,lastline=29]{examples/misc/break.abclr2}
+
+The loop begins with the command \code{:skip}, whose case does nothing.
+Its step expression prints the prompt and reads the next command.
+The termination test recognizes \code{:r}; it reads one more datum and
+sends it to \code{R}. Until this happens, the application's now-type
+breakpoint request has not received its reply. The suspended application
+handler resumes after that reply, not after a local-listing or edit command.
+
+\wholelisting[firstline=31,lastline=49]{examples/misc/break.abclr2}
+
+For upward navigation, \code{env-record} is a stack of previously selected
+environments, represented as a Lisp list. The bracket expression
+\code{[environment . env-record]} constructs a new head/tail pair.
+Downward navigation retrieves its \code{car} and removes it with
+\code{cdr}. It therefore retraces your own upward moves; it does not
+search for every inner scope in the program. An upward move with no outer
+environment or a downward move with empty history does nothing.
+
+The setting branch uses \code{let*} so the name is read before the value,
+then sends the local-binding update asynchronously. The original session
+and isolated checks show those updates visible when the handler resumes.
+Do not extend that observation to arbitrary debugger clients or scheduler
+policies without checking their message ordering.
+
+\paragraph{Evidence and scope.}
+Run \code{make -C tutorial break-check}. Six checks replay the original
+definition and editing session from unchanged source copies, verify
+999 followed by 133, inspect persistent \code{x}, and confirm that
+a supplementary handler receives \code{(+ 1 2)} as raw breakpoint-return
+data. Transcript assertions also check local listings, variable values,
+unbound-name handling, help, and an optional formatted message.
+They do not certify every command alias or concurrent breakpoint arrival.
+The single inspector reads shared interactive input; this example is not
+a multi-user debugger, a rollback facility, or a whole-system pause.
+
+\paragraph{Check your understanding, with answers.}
+Why does the second call not return 999?
+The first call's \code{z} was temporary; the second creates a fresh binding.
+Why can its result still depend on the first session?
+The state binding \code{x} was changed in the persistent state frame.
+Does entering \code{:r} and then 0 force the application to return 0?
+No. It returns 0 from the breakpoint expression; the handler still decides
+what application reply to send afterwards.

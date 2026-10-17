@@ -1,0 +1,25 @@
+; Observe the first phase without changing dispatch or supplying a real lock reply.
+(inc-lib "@ROOT@/build/express-tests/express/express" :use-source t :verbose nil)
+(inc "@ROOT@/build/express-tests/express/express-ex" :use-source t :verbose nil)
+(defvar *express-original-send* (symbol-function 'r2sys::send-message))
+(defun express-observe-lock ()
+ (setf (symbol-function 'r2sys::send-message)
+  (lambda (target message reply sender)
+   (cond
+    ((eq message :grab) (format t "~&EXPRESS-TRACE grab~%"))
+    ((and (consp message) (eq (first message) :message)
+          (eq (second message) :lock))
+     (format t "~&EXPRESS-TRACE lock-arrival~%"))
+    ((eq message :ok) (format t "~&EXPRESS-TRACE lock-reply~%")))
+   (funcall *express-original-send* target message reply sender))))
+(defun express-stop-observing ()
+ (setf (symbol-function 'r2sys::send-message) *express-original-send*))
+(express-observe-lock)
+[test <== :start]
+; Only after the blocked-message diagnostic: unwind the diagnostic session.
+; These injected values are not application or protocol successes.
+:q
+:q
+(express-stop-observing)
+(format t "~&EXPRESS-LOCK-BLOCKED-END~%")
+:q

@@ -1,0 +1,9 @@
+(defun tutorial-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&CHECK-PASS ~A~%" name)
+      (error "CHECK-FAIL ~A: got ~S, expected ~S" name actual expected)))
+(inc "build/tutorial-tests/03-jobs" :use-source t)
+(tutorial-check "03-jobs-1" [dispatcher <== [:run nil]] '(:report 0 0 nil))
+(tutorial-check "03-jobs-2" (let ((r [dispatcher <== [:run [[1 2] [2 3] [3 :bad]]]])) (list (first r) (second r) (third r) (sort (fourth r) #'< :key #'first))) '(:report 2 1 ((1 :ok 4) (2 :ok 9) (3 :failed :not-a-number))))
+(tutorial-check "03-jobs-3" (let ((r [dispatcher <== [:run [[4 5]]]])) (second r)) 1)
+:q

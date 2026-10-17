@@ -1,0 +1,75 @@
+This is a reading aid, not a complete grammar. Names such as \code{target},
+\code{pattern}, and \code{body} are placeholders; ellipses stand for omitted
+parts. The linked sections explain evaluation, matching, prerequisites,
+and the limits of the supplied implementation. Lisp notation and control
+forms are introduced in Section~\ref{sec:lisp-reading}.
+
+\paragraph{Objects, state, and matching.}
+\begin{longtable}{L{0.39\textwidth}L{0.39\textwidth}L{0.12\textwidth}}
+\textbf{Construct} & \textbf{Meaning} & \textbf{Section}\\\hline
+\endhead
+\code{[object name (script ...)]} & Create an object and bind its name;
+omit the name for an anonymous object. & \ref{sec:objects}\\
+\code{(state [n := 0])} & Object-definition entry for persistent state. & \ref{sec:state}\\
+\code{(temporary [x := 0])} & Handler-local binding, not persistent state. & \ref{sec:objects}\\
+\code{[x := expression]} & Change a binding. & \ref{sec:state}\\
+\code{(=> pattern body)} & A script handling a matching message. & \ref{sec:objects}\\
+\code{(=> pattern @ R from S body)} & Additionally bind reply destination
+and sender; either header field can be omitted. & \ref{sec:objects}\\
+\code{[head . tail]} & Pattern binding the head and entire tail of a pair;
+dot notation is not an extra list element. & \ref{sec:lisp-reading}\\
+\code{(match value (is pattern body) ...)} & Match a value inside a script;
+\code{otherwise} supplies a fallback clause. & \ref{sec:objects}\\
+\code{(=> pattern where test body)} & Guarded script selection, requiring
+compatible heavy-meta machinery; not an ordinary \code{match} constraint. & \ref{sec:guards}\\
+\end{longtable}
+
+\paragraph{Sending, replying, and continuing.}
+\begin{longtable}{L{0.39\textwidth}L{0.39\textwidth}L{0.12\textwidth}}
+\textbf{Construct} & \textbf{Meaning} & \textbf{Section}\\\hline
+\endhead
+\code{[target <= message]} & Past-type send; do not wait for a reply. & \ref{sec:messages}\\
+\code{[target <== message]} & Now-type send; wait for a reply. & \ref{sec:messages}\\
+\code{[target <= message @ R]} & Past-type send with a specified reply destination. & \ref{sec:messages}\\
+\code{[target <= message \$ f]} & Future-type send; route replies through
+the loaded future library. & \ref{sec:futures}\\
+\code{!expression} & Send a reply for the current message; not a return
+from the rest of the handler. & \ref{sec:objects}\\
+\code{[cont pattern body]} & Create a short, non-reifying continuation object. & \ref{sec:messages}\\
+\code{[target <= message :express]} & Express send; requires both sender
+and receiver machinery, not just this extra parameter. & \ref{sec:message-extensions}\\
+\code{(atomic body ...)} & Receiver-local protection in the express
+protocol; not a multi-object transaction. & \ref{sec:message-extensions}\\
+\end{longtable}
+
+\noindent\begin{minipage}{\linewidth}
+\paragraph{Groups, identities, and reflection.}
+\begin{longtable}{L{0.39\textwidth}L{0.39\textwidth}L{0.12\textwidth}}
+\textbf{Construct} & \textbf{Meaning} & \textbf{Section}\\\hline
+\endhead
+\code{[group name ...]} & Create a group manager with optional custom
+kernel objects. & \ref{sec:reflection}\\
+\code{(group manager)} & Object-definition parameter selecting its
+creation group. & \ref{sec:reflection}\\
+\code{(meta-gen generator)} & Object/group definition parameter selecting
+a metaobject generator. & \ref{sec:reflection}\\
+\code{(evaluator evaluator-object)} & Group-definition parameter selecting
+its evaluator. & \ref{sec:reflection}\\
+\code{[meta object]} & Obtain its metaobject. & \ref{sec:reflection}\\
+\code{[den metaobject]} & Obtain its lower-level denotation, not a copy. & \ref{sec:reflection}\\
+\code{[group-of object]} & Query its group manager; custom generators must
+provide the corresponding identity metadata. & \ref{sec:original-inherit}\\
+\code{Me} / \code{group} & Current object denoted by \code{Id} / group
+manager in \code{Gid}, not necessarily base-level application objects. & \ref{sec:reflection}\\
+\code{(reify-args tag forms ...)} & Evaluate the tag, then send compiled
+argument expressions and context to the current evaluator. & \ref{sec:reflection}\\
+\code{(reify-args-to-meta tag forms ...)} & Send them to the current
+object's metaobject instead. & \ref{sec:reflection}\\
+\end{longtable}
+\end{minipage}
+
+\code{reify-args} and \code{reify-args-to-meta} are unavailable in a
+non-reifying object's script. Extra send/object/assignment parameters
+are interpreted by the selected machinery, not universally by their
+spelling. Section~\ref{sec:reflection} explains the evaluation context;
+Section~\ref{sec:files} separately collects loading and compilation commands.

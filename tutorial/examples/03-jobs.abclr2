@@ -1,0 +1,47 @@
+;;; Every worker replies exactly once, including on invalid input.
+[object worker-a
+ (script
+  (=> [:square id value]
+      (if (numberp value)
+        ![:done id :ok (* value value)]
+        ![:done id :failed :not-a-number])))]
+
+[object worker-b
+ (script
+  (=> [:square id value]
+      (if (numberp value)
+        ![:done id :ok (* value value)]
+        ![:done id :failed :not-a-number])))]
+
+[object monitor-factory
+ (script
+  (=> [:new count destination]
+      ![object
+        (state [remaining := count]
+               [successful := 0]
+               [failed := 0]
+               [results := nil])
+        (script
+         (=> [:done id status value]
+             [results := (cons (list id status value) results)]
+             (if (eq status :ok)
+               [successful := (+ successful 1)]
+               [failed := (+ failed 1)])
+             [remaining := (- remaining 1)]
+             (if (= remaining 0)
+               [destination <= [:report successful failed
+                                (reverse results)]])))]))]
+
+[object dispatcher
+ (script
+  (=> [:run jobs] @ R
+      (if (null jobs)
+        [R <= [:report 0 0 nil]]
+        (let ((monitor [monitor-factory
+                         <== [:new (length jobs) R]]))
+          (dolist (job jobs)
+            (let ((id (first job))
+                  (value (second job)))
+              (if (evenp id)
+                [worker-a <= [:square id value] @ monitor]
+                [worker-b <= [:square id value] @ monitor])))))))]

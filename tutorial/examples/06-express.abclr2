@@ -1,0 +1,36 @@
+(inc-lib "lib/future" :use-source t)
+(inc-lib "lib/express" :use-source t)
+
+[group express-demo
+ (meta-gen meta/express-gen)
+ (evaluator [eval/express-gen
+              <== [:new (r2sys::create-primary-eval group)]])]
+
+[object ticker
+ (group express-demo)
+ (state [ticks := 0]
+        [stop := nil])
+ (script
+  (=> :run
+      [stop := nil]
+      (do ((i 0 (+ i 1)))
+          ((or stop (>= i 20)))
+        (atomic
+          [ticks := (+ ticks 1)]
+          [ticks := (+ ticks 1)]))
+      !ticks)
+  (=> :peek !ticks)
+  (=> :stop [stop := t]))]
+
+[object express-controller
+ (group express-demo)
+ (script
+  (=> :test
+      (temporary [finished := (make-future)]
+                 [even-samples := t])
+      [ticker <= :run $ finished]
+      (dotimes (i 10)
+        (if (not (evenp [ticker <== :peek :express]))
+          [even-samples := nil]))
+      [ticker <= :stop :express]
+      !(list even-samples (next-value finished))))]

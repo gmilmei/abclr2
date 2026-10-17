@@ -1,0 +1,198 @@
+\subsection{Interrupting a Reflective Control Form}
+\label{sec:interrupt}
+
+The second experiment in \filepath{examples/misc/reify-args.abclr2}
+defines \code{with-interrupt}. Unlike the preceding \code{my-if}, it
+customizes an individual object's metaobject rather than the group's
+evaluator. It illustrates \emph{abandoning} an evaluation and selecting
+an alternative result. It is not an operating-system interrupt handler,
+an exception mechanism with stack unwinding, or state rollback.
+
+\subsubsection{Read the Application Before the Machinery}
+
+The original worker counts, then returns one of two strings:
+
+\wholelisting[firstline=194,lastline=202]{examples/misc/reify-args.abclr2}
+
+The three arguments are the body, the success expression, and the
+failure expression. They are passed as compiled representations, not
+evaluated argument values. The body prints \code{Count 0.} through
+\code{Count n-1.} if allowed to finish. Its ordinary \code{dotimes}
+result is not the application's answer: the selected branch supplies
+the value of \code{with-interrupt}, and the outer \code{!} sends that
+value to the waiting caller.
+
+The original controller starts the worker and later interrupts it:
+
+\wholelisting[firstline=204,lastline=212]{examples/misc/reify-args.abclr2}
+
+The worker's request is asynchronous with \code{@ R}, so the worker
+answers the original caller directly. The controller does not wait for
+the worker before running its dummy loop. After \code{m} empty iterations,
+it addresses \code{[meta test-with-interrupt]} directly. Sending an
+ordinary interrupt request to the application would queue it behind
+the running script; the direct meta-level request can change evaluation
+policy while that script is active. It has no application reply of its
+own, and the controller does not execute a second \code{!}.
+
+The commented historical session demonstrates these two outcomes:
+
+\begin{codeblock}
+\begin{lstlisting}
+[test-with-interrupt-2 <== [:run 10 3]]
+; Count 0., Count 1., Count 2.
+; Being interrupted... / Context is caught.
+; => "Time is up."
+
+[test-with-interrupt-2 <== [:run 10 30]]
+; Count 0. through Count 9.
+; Interruption is ignored.
+; => "Yeah! I did it!"
+\end{lstlisting}
+\end{codeblock}
+
+The checked excerpt reproduces those counts and branch results on the
+current image. The parameter \code{m} is a workload measured in empty
+loop iterations, not seconds or a timeout deadline. Do not generalize
+the exact point of interruption to another evaluator or scheduler.
+Even diagnostic output order needs care: in the current transcript the
+late interruption's ``ignored'' message appears after the check has
+already received the success result. The worker's reply does not join
+every outstanding action in the controller.
+
+\subsubsection{How the Control Form Reaches the Metaobject}
+
+The group's \code{meta-gen} selects \code{meta-with-interrupt-gen}.
+The generator itself belongs to \code{[group-of group]}, the surrounding
+group's meta-group. For each application object it constructs a
+non-reifying evaluator wrapper and a non-reifying metaobject. These
+machinery objects use direct message handlers, while the application
+script can use reflective forms.
+The macro exposes the protocol:
+
+\wholelisting[firstline=190,lastline=192]{examples/misc/reify-args.abclr2}
+
+Its expansion sends
+\code{[:with-interrupt [Body Success Fail] Env Id Gid Eval] @ C}
+to the current application's metaobject. \code{Env} is the captured
+evaluation environment; \code{Id} identifies that application's
+metaobject; \code{Gid} is its group context; \code{Eval} is its current
+evaluator wrapper. \code{C} receives the result of the control form.
+In this worker, that continuation leads to the outer \code{!}; it is
+not simply the controller's application reply destination \code{R}.
+
+Read the metaobject's control handlers in this order:
+
+\wholelisting[firstline=105,lastline=121]{examples/misc/reify-args.abclr2}
+
+On entry to \code{:with-interrupt}, it stores the failure representation
+and the result/context tuple \code{[C Env Id Gid Eval]}. It requests
+evaluation of \code{Body}; the attached continuation receives
+\code{Result}, ignores that body result, and requests evaluation of
+\code{Success} with destination \code{C}. The caller waits for one
+selected branch, not for all three arguments.
+
+An active metaobject accepts \code{[:interrupt]} and tells its evaluator
+wrapper where to report an intercepted request. A dormant metaobject
+only prints that interruption is ignored. The mode comes from the
+ordinary message-dispatch lifecycle, not from a timer or a stack of
+active \code{with-interrupt} regions.
+
+\subsubsection{Capture the Next Request, Then Abandon It}
+
+Here is the wrapper inside the original generator:
+
+\wholelisting[firstline=78,lastline=93]{examples/misc/reify-args.abclr2}
+
+The final delimiters also close the enclosing temporary-variable binding.
+Initially \code{interrupted} is \code{nil}. A normal request \code{any}
+is forwarded to the underlying group evaluator, retaining its reply
+destination \code{R}. Here the capitalized \code{Eval} in the wrapper's
+fallback comes from the generator's creation request: it names the
+underlying evaluator. It is different from the incoming control
+handler's \code{Eval}, which names the wrapper through which the
+application is currently evaluated.
+
+The \code{[:interrupt R]} handler saves its notification address and sets
+a flag. It does not immediately stop host Lisp code or return a context.
+The next ordinary evaluation request consumes the flag. Instead of
+forwarding that request, the wrapper sends \code{[:context [any . R]]}
+to the saved address. The dotted pair retains the request and its
+completion destination. Interruption occurs at an evaluation-message
+boundary; a host operation already executing is not preempted inside
+its machine instructions.
+
+The metaobject's \code{[:context \_]} handler intentionally ignores that
+intercepted request. It evaluates \code{fail-form} using the separately
+saved \code{context-for-recover}, with the same \code{C} as the control
+form's original result destination. This bypasses the body continuation
+that would have selected success. The interrupted computation is not
+resumed later. Contrast this with the newer Express library, which
+stores a suspended evaluation request and resumes it after the express
+script has finished (Section~\ref{sec:original-express}).
+
+Follow an early interruption through five distinct messages:
+
+\begin{enumerate}
+  \item The controller sends the worker \code{[:run n] @ R}.
+  \item The worker's reflective form asks its metaobject to evaluate the
+  body and remember a failure alternative.
+  \item The controller sends that metaobject \code{[:interrupt]}; the
+  metaobject sends its wrapper \code{[:interrupt Me]}.
+  \item The wrapper intercepts a later evaluation request and reports
+  \code{:context}; the metaobject substitutes failure evaluation at
+  the control form's saved destination \code{C}.
+  \item Failure returns through the worker's \code{!} to \code{R}.
+  The script's separate execution-completion continuation eventually
+  sends \code{:end} to its metaobject, advancing the ordinary queue.
+\end{enumerate}
+
+The remaining generator handlers reproduce the familiar queue protocol:
+\code{:message} enqueues, \code{:begin} matches and starts one script,
+and \code{:end} starts another request or returns to dormant mode.
+State initialization uses \code{:do-evlis}, \code{pairlis}, and
+\code{env-gen}, as in the inheritance walkthrough. Extra creation
+parameters are matched by \code{Extra} but not used here. The
+\code{:evaluator}/\code{:set-evaluator} handlers expose the evaluator
+choice; they do not themselves define interruption.
+
+\subsubsection{Effects, Scope, and Safe Reproduction}
+
+Printed counts remain printed. A supplemental worker using the original
+generator increments persistent state in its body and returns either
+\code{(:SUCCESS count)} or \code{(:FAILED count)}. Its early interrupt
+leaves a positive count below the requested 50 increments. A subsequent
+ordinary state query sees that same count, and a new successful run adds
+two. Thus branch substitution abandons further body work but does not
+undo earlier effects or automatically reinitialize the worker.
+
+The implementation has one \code{fail-form} and one recovery tuple per
+metaobject, not a stack of nested regions. Use it around one body interval
+rather than as a general nested cancellation API. There is no timeout clock, cleanup
+protocol, or guarantee of arbitrary resource release.
+
+For a separate executable version of this experiment, run
+\code{make -C tutorial interrupt-check}. Then load the prepared definitions
+in a fresh ABCL/R2 session:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "build/interrupt-tests/interrupt-excerpt" :use-source t)
+\end{lstlisting}
+\end{codeblock}
+
+The excerpt contains the interrupt generator, its group, the worker and
+the controller. Thirteen checks exercise the two controller calls,
+empty and normal bodies, reuse, and the supplemental state experiment.
+Sources, translations, inputs and logs stay in
+\filepath{build/interrupt-tests/}.
+
+\paragraph{Check your understanding.}
+Why not use \code{reify-args} here? The handler is on the application's
+metaobject, not the group evaluator. Why does the failure path not send
+the intercepted request back to the wrapper? It substitutes another
+expression rather than resuming that request. Does \code{m = 3} mean
+three seconds? No. Does interruption restore the count? No; prior
+effects remain. Why do both success and failure use \code{@ C}? Both
+must complete the same control expression and resume its caller's
+remaining evaluation, including the application's reply.

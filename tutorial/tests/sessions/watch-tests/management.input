@@ -1,0 +1,18 @@
+(defun watch-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&WATCH-PASS ~A~%" name)
+  (error "WATCH-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/watch-tests/12-watch" :use-source t)
+[original := [[meta watch-driver] <== :evaluator]]
+[watch-manager <= [:watch-object watch-driver watch-recorder]]
+[first-wrapper := [[meta watch-driver] <== :evaluator]]
+[watch-manager <= [:watch-object watch-driver watch-recorder]]
+(watch-check "repeated-watch-adds-wrapper" (eq [[meta watch-driver] <== :evaluator] first-wrapper) nil)
+(nowatch watch-driver)
+(watch-check "first-disable-leaves-inner-wrapper" [[meta watch-driver] <== :evaluator] first-wrapper)
+(nowatch watch-driver)
+(watch-check "second-disable-does-not-unwind" [[meta watch-driver] <== :evaluator] first-wrapper)
+[[meta watch-driver] <= [:set-evaluator original]]
+(watch-check "explicit-cleanup" [[meta watch-driver] <== :evaluator] original)
+(format t "~&WATCH-END~%")
+:q

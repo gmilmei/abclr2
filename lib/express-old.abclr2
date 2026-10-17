@@ -1,0 +1,182 @@
+;;; -*- Mode: Lisp; -*-
+;;; express.abclr2
+;;; express messages
+;;; Jul. 19, 1992 by MASUHARA, H.
+;;; Jul. 25, 1992 --- modified according to the change of script specification
+
+;; A metaobject of an object that can accept express type messages is
+;; created by meta/express-gen.
+;; An express type message is sent by following form:
+;;	[target <= message :express], or
+;;	[target <== message :express]
+;; This form must be evaluated by eval/express. In other words, an object
+;; that sends express type messages must be a member of a group having
+;; eval/express as an evaluator.
+;; A script invoked by an express message is executed without queuing.
+;; Since normal script execution is not preempted, however, the user
+;; should surround the critical section by (atomic ...) form.
+
+(provide 'express)
+
+#|;; This definition is moved to src/user.lsp.
+(defmacro atomic (&rest body)
+  "evaluates body expressions with a guarantee that the evaluation
+is not took place with other atomic form simulataneously."
+  (let ((result (gensym)))
+    `(let ((,result (progn
+		      (bracket (bracket meta me) <== :lock)
+		      ,@body)))
+      (bracket (bracket meta me) <= :release)
+      ,result)))
+|#
+
+;; locking object for atomic forms
+[object express-lock-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> :new
+       ![object express-lock
+	  (meta-gen non-reifying-meta)
+	  (state [locked-p := nil]
+		 [locking-requests := nil])
+	  (script
+	   (=> :lock @ R
+	       (if locked-p
+		   [locking-requests := (nconc locking-requests (list R))]
+		   (progn
+		     [locked-p := t]
+		     [R <= :ok])))
+	   (=> :release
+	       (if (null locking-requests)
+		   [locked-p := nil]
+		   (progn
+		     [(first locking-requests) <= :ok]
+		     [locking-requests := (rest locking-requests)]))))]))]
+    
+;; If we had an inheritance mechanism...
+[object meta/express-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new StateSpec LexEnv Scripts Eval GMgr] @ R
+       ;; metaobject with express message handler
+       [object Metaobject/express
+	 (meta-gen non-reifying-meta)
+	 (state [queue := [queue-gen <== :new]]
+		[state := nil]
+		[scriptSet := scripts]
+		[evaluator := Eval]
+		[Group-manager := GMgr]
+		[mode := ':dormant]
+		[express-count := 0]
+		[lock := [express-lock-gen <== :new]])
+	 (script
+	  (=> [:message Message Reply Sender]
+	      [queue <= [:enq [Message Reply Sender]]]
+	      (when (and (eq mode ':dormant) (zerop express-count))
+		[mode := ':active]
+		[Me <= :begin]))
+	  (=> :begin
+	      (match [queue <== :deq]
+		(is [Message Reply Sender]
+		    (match (find-script Message Reply Sender scriptSet)
+		      (is [Bindings ScriptBody]
+			  [evaluator 
+			   <= [:do
+			       ScriptBody
+			       [env-gen <== [:new Bindings state]]
+			       Me Group-manager evaluator]
+			   @ [cont _
+				   [Me <= :end]]])
+		      (otherwise
+		       (warn "~S cannot handle the message ~S"
+			     [den Me] Message))))))
+	  (=> :end
+	      (if (not [queue <== :empty?])
+		  [Me <= :begin]
+		  [mode := ':dormant]))
+	  ;; reflective operations
+	  (=> :state !state)
+	  (=> [:set-state s]
+	      [state := s])
+	  (=> :queue @ R
+	      [queue <= :listify @ R])
+	  (=> :dequeue @ R
+	      [queue <= :deq @ R])
+	  (=> [:enqueue item]
+	      [queue <= [:enq item]])
+	  (=> [:find-script Message]
+	      !(search-script Message nil nil scriptSet))
+	  (=> [:add-script new-script]
+	      [scriptSet := (cons new-script ScriptSet)])
+	  (=> [:remove-script Message]
+	      [scriptSet := (remove-script Message nil nil ScriptSet)])
+	  ;;
+	  ;; scripts for express messages
+	  ;;
+	  (=> [:message Message Reply Sender :express]
+	      [express-count := (1+ express-count)] ; count up
+	      ;; execute without queueing
+	      (match (find-script Message Reply Sender scriptSet)
+		(is [Bindings ScriptBody]
+		    [evaluator 
+		     <= [:do
+			    ScriptBody [env-gen <== [:new Bindings state]]
+			    Me Group-manager evaluator]
+		     @ [cont _ [Me <= :express-end]]])
+		(otherwise
+		 (warn "~S cannot handle this express message ~S"
+		       [den Me] Message))))
+	  ;; end of a script execution invoked by an express message
+	  (=> :express-end
+	      [express-count := (1- express-count)]
+	      (when (and (zerop express-count)
+			 (eq mode ':dormant)
+			 (not [queue <== :empty?]))
+		[Me <= :begin]))
+	  ;; request for locking
+	  (=> :lock @ R
+	      [lock <= :lock @ R])
+	  ;; request for releasing lock
+	  (=> :release
+	      [lock <= :release])
+	  )]
+;; PORT-BEGIN: Set the known owner before initialization; NRM state remains opaque.
+;; PORT-ACTIVE
+       (setf (r2sys::object-data-gid [den Metaobject/express]) GMgr)
+;; PORT-END
+       ;; initialize state variables
+       [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		  LexEnv Metaobject/express GMgr Eval]
+	     @ [cont initValues
+		     [Metaobject/express
+		      <= [:set-state
+			  [env-gen 
+			   <== [:new (pairlis (stateSpec-varNames stateSpec)
+					      initValues)
+				     LexEnv]]]]
+		     [R <= Metaobject/express]]]))]
+
+[object eval/express-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new original-eval]
+       ![object eval/express
+	  (meta-gen non-reifying-meta)
+	  (script
+	   ;; past type express messages
+	   (=> [:do [:send-past Target Message Reply :express]
+		    Env Id Gid Eval] @ C
+		    [C <= nil]
+		    (if (not (null Target))
+			[[meta Target]
+			 <= [:message Message Reply [den Id] :express]]))
+	   ;; now type express messages
+	   (=> [:do [:send-now Target Message :express]
+		    Env Id Gid Eval] @ C
+		    (if (not (null Target))
+			[[meta Target]
+			 <= [:message Message C [den Id] :express]]))
+	   ;; other expressions are delegated
+	   (=> any @ C
+	       [original-eval <= any @ C])
+	   )]))]

@@ -1,0 +1,9 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc "@ROOT@/build/group-tests/examples/misc/meta-meta" :use-source t)
+(group-check-point :tower-app twice a-group)
+(group-check-point :tower-meta [meta twice] [group-of the-meta-gen])
+(group-check "tower-execution" [twice <== 3] 6)
+(group-check "tower-identity" [den [meta twice]] twice)
+(format t "~&GROUP-END~%")
+:q

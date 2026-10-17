@@ -1,0 +1,289 @@
+\subsection{Pcontrol: Scheduling a Recursive Object Computation}
+\label{sec:pcontrol}
+
+The programs in \filepath{examples/pcontrol/} move reflection from an
+individual object's behavior to a group's execution policy. A recursive
+algorithm can create many objects before earlier work has finished.
+The example asks whether choosing small pending computations first can
+reduce this growth. Here, \emph{parallelism control} means controlling the
+progress of concurrent work, not creating operating-system threads.
+Read the application first, then follow the machinery that schedules it.
+
+\subsubsection{A Checked Session and the Loading Order}
+\label{sec:pcontrol-load}
+
+Start a fresh interpreter with its working directory set to a scratch
+copy of \filepath{examples/pcontrol/}. Relative names in
+\filepath{start.abclr2} refer to that directory. Loading creates translations
+and compiling creates compiled files; the experiments also overwrite
+their own log files. The automated reading check creates this scratch
+copy for you:
+
+\begin{lstlisting}
+make -C tutorial pcontrol-check
+\end{lstlisting}
+
+For an interactive session in such a copy, use:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "start" :use-source t)
+(inc "fib" :use-source t)
+[test-pc <== [:start 4]]
+; Prints Fibonacci(4) = (:ANS 3); replies T.
+[test-np <== [:start 4]]
+; Prints Fibonacci(4) = (:ANS 3); replies T.
+\end{lstlisting}
+\end{codeblock}
+
+The printed \code{(:ANS 3)} is the Fibonacci answer message, whereas
+\code{T} is the test object's final reply. These are different protocol
+results. Use the argument shapes in \filepath{README.abclr2} and the
+actual handlers: some commands in the commented block at the end of
+\filepath{start.abclr2} have obsolete extra arguments.
+Keep inputs small; the original README warns that these experiments
+are expensive.
+
+\filepath{start.abclr2} compiles both applications but loads only the
+four machinery files. Their order supplies the dependencies:
+
+\begin{enumerate}[nosep]
+  \item \filepath{para-monitor.abclr2} defines the monitor.
+  \item \filepath{pqueue-eval.abclr2} defines the queue and evaluator factories.
+  \item \filepath{priori-meta.abclr2} defines application metaobjects.
+  \item \filepath{pcontrol-group.abclr2} connects them into a group.
+\end{enumerate}
+
+The subsequent \code{inc "fib"} or \code{inc "qsort"} chooses the
+application. Both application files define \code{test-pc} and
+\code{test-np}; loading the second replaces those bindings. Use a fresh
+session when changing applications.
+
+\subsubsection{Fibonacci: Create Children, Then Collect Replies}
+\label{sec:pcontrol-fib}
+
+The convention is \code{F(1) = F(2) = 1}. The source does not provide a base
+case for zero or negative inputs. A factory \code{fib-gen-gen} creates
+a \code{fib-gen} in the \code{pcontrol} group. That generator creates
+one \code{fib} object per recursive subproblem, with its problem size
+as its priority. The child objects inherit the creation context's group.
+
+\wholelisting[firstline=18,lastline=33]{examples/pcontrol/fib.abclr2}
+
+The literal patterns \code{1} and \code{2} precede the general
+variable pattern \code{n}. A base case sends \code{[:ans 1]} to its
+request's reply destination, then reports logical completion to the
+monitor. A larger problem saves its caller's destination in state
+\code{reply}. Each nested \code{fib-gen <== [:new ...]} waits for
+the newly created child object, not for its Fibonacci result.
+The following \code{<=} starts that child asynchronously with
+\code{@ Me}, so the child sends its answer back to the parent.
+
+The parent does not block while collecting answers. Its first
+\code{[:ans n]} stores the value in \code{sub-node-value}; its
+second adds both values and forwards \code{[:ans sum]} to the
+saved destination. Because all valid results are positive, \code{nil}
+can safely mean no first answer yet. This is a one-computation-per-object
+protocol: the state is not reset for a second request.
+
+Trace the five application nodes for input 4:
+
+\begin{enumerate}
+  \item The root for 4 saves its caller and creates children for 3 and 2.
+  \item The node for 3 saves the root's identity and creates children
+        for 2 and 1.
+  \item Each base node replies \code{[:ans 1]} to its parent.
+  \item The node for 3 combines two answers into \code{[:ans 2]}.
+  \item The root combines 2 and 1 into \code{[:ans 3]}.
+\end{enumerate}
+
+This is a dependency trace, not a guaranteed temporal ordering.
+At each join either child may reply first. Addition makes the
+aggregation independent of that order. The test waits on the root,
+prints its answer, requests that monitoring stop, and replies \code{T}.
+Its \code{<==} is therefore a completion boundary for the computation,
+not just for dispatching the first child.
+
+\subsubsection{Where the Scheduling Policy Actually Lives}
+\label{sec:pcontrol-policy}
+
+The group definition is short enough to read in full:
+
+\wholelisting[firstline=9,lastline=16]{examples/pcontrol/pcontrol-group.abclr2}
+
+The group uses \code{priori-meta-gen} for each application object's
+metaobject. Its evaluator is a \code{multi-eval} created with four
+primary evaluators. The group forwards an object-creation request,
+including \code{:priority priority}, to its metaobject generator.
+Four evaluators here are four runtime objects; this declaration does
+not establish execution on four processors.
+
+There are two queues to distinguish. Each application metaobject in
+\filepath{priori-meta.abclr2} has its own ordinary FIFO message queue.
+On \code{:begin}, it selects a script and submits a \code{[:do ...]}
+request to the shared evaluator, adding the object's priority after
+the usual context fields. A continuation sends \code{:end} back to
+that metaobject when script evaluation completes. That signal advances
+the object's queue; it is separate from the script's application reply.
+
+The shared \code{multi-eval} has a metaobject made by \code{PQ-meta-gen}.
+That metaobject queues evaluation requests as
+\code{[Priority [Message Reply Sender]]}.
+An explicitly supplied priority is associated with the requesting
+object's \code{Id}; requests without an explicit priority use the
+recorded association, or zero if none exists.
+The priority is thus scheduling information in the evaluation context,
+not an extra field in \code{[:ans value]}.
+
+Both tests keep this machinery and the \code{pcontrol} group.
+They replace the shared evaluator metaobject's queue:
+
+\wholelisting[firstline=44,lastline=45]{examples/pcontrol/fib.abclr2}
+
+The \code{pc} variant installs a queue sorted by \code{<} on each
+entry's \code{first} element. The \code{np} variant instead uses
+\code{[queue-gen <== :new]}, the ordinary FIFO queue.
+In the nested expression, \code{[pcontrol <== :evaluator]} obtains
+the evaluator object; \code{meta} obtains its metaobject; and
+\code{[:set-queue ...]} changes that metaobject's pending-work policy.
+This does not change each Fibonacci object's inbox into a priority queue.
+
+\wholelisting[firstline=12,lastline=18]{examples/pcontrol/pqueue-eval.abclr2}
+
+\code{cons} inserts an entry into the list and \code{sort} reorders
+that list. \code{:key \#'first} tells sorting to compare the priority
+field. Smaller problem sizes are selected before larger ones among
+entries pending in this queue. Do not infer a stable order for equal
+priorities: the source uses \code{sort}, not a stable tie-breaking
+policy. Nor is this express interruption: it selects pending requests
+rather than preempting an already running script.
+
+Finally, read \code{multi-eval}'s two handlers near the end of
+\filepath{pqueue-eval.abclr2}. One recognizes an object-definition
+representation carrying \code{:priority} and forwards creation to
+the chosen group manager, then arranges the resulting name binding
+and reply. The catch-all handler forwards other evaluation requests
+to the next primary evaluator in a cyclic list, preserving their
+completion destination \code{C}. This explains how the example
+changes creation and scheduling without rewriting the Fibonacci
+application's reply protocol.
+
+\subsubsection{Quicksort: A Message-driven State Machine}
+\label{sec:pcontrol-qsort}
+
+\filepath{qsort.abclr2} uses the same group but a different application.
+Its opening comment explains why scanning is implemented through
+self-messages rather than a \code{do} loop. Read those self-messages
+as transitions between phases, not as recursive host function calls.
+
+Each sorting object captures \code{array}, \code{left}, and
+\code{right} from its generator's lexical scope. Its priority is
+\code{(- right left)}. For a nontrivial range, \code{:start}
+saves its caller's destination, chooses the middle element as
+\code{pivot}, initializes indices \code{i} and \code{j}, and sends
+\code{:scan-left} to itself.
+
+\begin{enumerate}
+  \item \code{:scan-left} advances \code{i} until its element is
+        not smaller than the pivot, then requests \code{:scan-right}.
+  \item \code{:scan-right} moves \code{j} left until its element
+        is not larger than the pivot, then requests \code{:test-swap}.
+  \item \code{:test-swap} exchanges elements if \code{i <= j},
+        advances both indices, and either resumes scanning or creates
+        two child sorting objects for the remaining ranges.
+  \item Each child sends \code{:fin} to its parent. The parent's
+        \code{wait} flag records the first completion; the second
+        forwards \code{:fin} to the parent's saved caller.
+\end{enumerate}
+
+\code{aref} reads an array element; \code{setf} changes that element
+in place. The descendants share this array but work on partitioned
+ranges. The first completion means only that one side is sorted;
+the second establishes completion of both. A range with
+\code{left >= right}, including an empty range, immediately replies
+\code{:fin}.
+
+\wholelisting[firstline=54,lastline=62]{examples/pcontrol/qsort.abclr2}
+
+For \code{(3 1 3 2)}, the root covers indices 0 through 3 and
+chooses the element at index 1, namely 1, as its pivot.
+The left scan stops at index 0. The right scan moves from 3 to 1.
+The swap produces \code{(1 3 3 2)}, with \code{i = 1} and
+\code{j = 0}. Scanning ends, so the children cover the already
+trivial range 0--0 and the remaining range 1--3. Their completions
+join at the root; the final array is \code{(1 2 3 3)}.
+
+In a fresh session with the same setup, a deterministic test avoids
+the random initialization object:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "start" :use-source t)
+(inc "qsort" :use-source t)
+[input-array := (make-array 4 :initial-contents '(3 1 3 2))]
+(coerce [test-pc <== [:start input-array 4]] 'list)
+; => (1 2 3 3)
+(coerce [test-np <== [:start input-array 4]] 'list)
+; => (1 2 3 3)
+(coerce input-array 'list)
+; => (3 1 3 2)
+\end{lstlisting}
+\end{codeblock}
+
+\code{coerce ... 'list} makes an array's contents convenient to inspect.
+Both test handlers first copy their input with
+\code{make-array :initial-contents}; they return the sorted copy,
+not the caller's modified array. The original random entry point
+\code{[init <= N]} instead stores an array in the outer binding
+\code{a}; follow its \code{sample-gen} self-message loop to see
+how it fills each index.
+
+\subsubsection{Reading the Monitor Without Overinterpreting It}
+\label{sec:pcontrol-monitor}
+
+\filepath{para-monitor.abclr2} records two columns: a logical
+\code{clock} and a counter. The evaluator sends \code{:tick}
+when handling an evaluation request; this clock is not elapsed
+wall-clock time. Application metaobjects announce creation and
+transitions between dormant and active dispatch. The application
+explicitly sends \code{:object-dead} at logical completion.
+Nothing in that message destroys a Lisp object or measures garbage
+collection.
+
+The active count tracks announced dispatch activity, not the number
+of physical CPUs busy. A node waiting for child answers can be
+dormant yet still represent unfinished application work.
+The object count combines creation announcements with explicit
+logical-death announcements. For example, generator objects are
+also created through the machinery. It is not simply a count of
+the recursive leaves, allocated bytes, or all reachable host objects.
+The \code{:record} messages are asynchronous observations of these
+counters.
+
+For Fibonacci input 4, the actual source names the files
+\code{fib-active-pc-4.log}, \code{fib-object-pc-4.log}, and
+the corresponding \code{np} files; quicksort uses a \code{qsort-}
+prefix. Repeating the same run supersedes those files.
+The directory README's generic names omit these application prefixes.
+Compare traces as experiment output, not as proof that one policy
+always reduces memory or is faster.
+
+\paragraph{Check your understanding.}
+Does \code{test-np} remove priority-bearing metaobjects?
+\emph{Answer:} No. It replaces the shared evaluator's work queue with
+a FIFO queue while retaining the group and application metaobjects.
+Why can a parent accept either child's answer first?
+\emph{Answer:} Its state records the first answer and combines it
+with the second; Fibonacci uses addition, while quicksort counts
+two completion signals for disjoint subranges.
+
+\paragraph{Reproducing the reading checks.}
+\code{make -C tutorial pcontrol-check} runs twelve checks in fresh
+sessions using copies of the distributed sources. They check priority-queue
+ordering for distinct priorities, both Fibonacci policies at 4 and 6,
+both quicksort policies on a duplicate-containing input, and preservation
+of the caller's array. Translations, monitor files, inputs, and
+transcripts stay in \filepath{build/pcontrol-tests/}.
+These results establish the small examples' values and completion,
+not general performance, queue fairness, or faithful historical
+parallel execution.

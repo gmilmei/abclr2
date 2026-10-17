@@ -1,0 +1,64 @@
+;; towards Time Warp with scheduling
+;; << Simplest -- no roll back, no time warp -- version >>
+;; Feb. 12, 1992 by MASUHARA,H.
+
+[object washer-gen
+  (script
+   (=> [:new service-time attendant]
+       ![object washer
+	  (script
+	   (=> [:wash car]
+	       ;; wash the car...
+	       [attendant <= [:available Me]]))]))]
+
+[object attendant
+  (state
+   [waiting-cars := [queue-gen <== :new]]
+   [waiting-washers := [queue-gen <== :new]])
+  (script
+   (=> [:arrival car]
+       (format t "~&Car ~D arrives" car)
+       [waiting-cars <= [:enq car]]
+       [Me <= :deliver])
+   (=> [:available washer]
+       (format t "~&Washer ~S available" washer)
+       [waiting-washers <= [:enq washer]]
+       [Me <= :deliver])
+   (=> :deliver
+       (if (and (not [waiting-cars <== :empty?])
+		(not [waiting-washers <== :empty?]))
+	   (let ((car [waiting-cars <== :deq])
+		 (washer [waiting-washers <== :deq]))
+	     (if (eq car :fin)
+		 [starter <= :fin]
+		 (progn
+		   (format t "~&Make washer ~S  wash car ~D"
+			   washer car)
+		   [washer <= [:wash car]]))))))]
+
+[object starter
+  (state [Reply := nil] [wait-flag := t])
+  (script
+   (=> [:start service-time-list car-list] @ R
+       [washers-gen <== [:new service-time-list attendant]]
+       [Reply := R] [wait-flag := t]
+       [Me <= [:loop car-list attendant]])
+   (=> [:loop nil attendant]
+       [attendant <= [:arrival :fin]]
+       [Me <= :fin])
+   (=> [:loop [first-car . rest-car] attendant]
+       [attendant <= [:arrival first-car]]
+       [Me <= [:loop rest-car attendant]])
+   (=> :fin
+       (if wait-flag
+	   [wait-flag := nil]
+	   [Reply <= :fin])))]
+
+[object washers-gen
+  (script
+   (=> [:new nil attendant] !:fin)
+   (=> [:new [service-time . rest] attendant] @ R
+       (temporary
+	[washer := [washer-gen <== [:new service-time attendant]]])
+       [attendant <= [:available washer]]
+       [Me <= [:new rest attendant] @ R]))]

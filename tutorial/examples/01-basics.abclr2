@@ -1,0 +1,35 @@
+;;; Basic objects, state, local bindings, and structural patterns.
+[object calculator
+ (script
+  (=> [:add x y] !(+ x y))
+  (=> [:square x] !(* x x)))]
+
+[object counter
+ (state [n := 0])
+ (script
+  (=> :inc [n := (+ n 1)] !n)
+  (=> [:add amount] [n := (+ n amount)] !n)
+  (=> :get !n))]
+
+[object classifier
+ (script
+  (=> [:classify value]
+      (match value
+       (is [:point x y] !(list :point x y))
+       (is [head . tail] !(list :nonempty head tail))
+       (is nil !:empty)
+       (otherwise !:atom))))]
+
+[object list-sum
+ (script
+  (=> [:sum values]
+      (temporary [total := 0])
+      (do ((rest values (cdr rest)))
+          ((null rest))
+        [total := (+ total (car rest))])
+      !total))]
+
+[object forwarder
+ (script
+  (=> [:square x] @ R
+      [calculator <= [:square x] @ R]))]

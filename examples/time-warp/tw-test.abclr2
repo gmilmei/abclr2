@@ -1,0 +1,40 @@
+;;; Time Warp: scheduling test
+;;; Feb. 17, 1992, by MASUHARA, H.
+
+[object foo
+  (group tw-group)
+  (script
+   (=> 0
+       (print "FOO finished")
+       !t)
+   (=> n @ R
+       (format t "~&FOO: ~D at ~D" n LVT)
+       [Me <= (1- n) @ R :VRT (1+ LVT)]))]
+
+[object bar
+  (group tw-group)
+  (script
+   (=> 0
+       (print "BAR finished")
+       !t)
+   (=> n @ R
+       (format t "~&BAR: ~D at ~D" n LVT)
+       [Me <= (1- n) @ R :VRT (+ LVT 2)]))]
+
+[object baz
+  (group tw-group)
+  (script
+   (=> 0
+       (print "BAZ finished")
+       !t)
+   (=> n @ R
+       (format t "~&BAZ: ~D at ~D" n LVT)
+       [Me <= (1- n) @ R :VRT (+ LVT 3)]))]
+
+[object start
+  (meta-gen non-reifying-meta)
+  (script
+   (=> n
+       [baz <= n :VRT 0]
+       [bar <= n :VRT 10]
+       [foo <= n :VRT 20]))]

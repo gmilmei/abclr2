@@ -1,0 +1,11 @@
+(defun original-check (name actual expected)
+ (if (equal actual expected)
+   (format t "~&ORIGINAL-PASS ~A~%" name)
+   (error "ORIGINAL-FAIL ~A: got ~S expected ~S" name actual expected)))
+[*library-directories* := (list "@ROOT@/build/original-tests/lib/")]
+(inc "start" :use-source t)
+(inc "fib" :use-source t)
+(original-check "priority-fib" [test-pc <== [:start 4]] t)
+(original-check "fifo-fib" [test-np <== [:start 4]] t)
+(format t "~&ORIGINAL-END pcontrol-fib~%")
+:q

@@ -1,0 +1,12 @@
+(defun tutorial-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&CHECK-PASS ~A~%" name)
+      (error "CHECK-FAIL ~A: got ~S, expected ~S" name actual expected)))
+(inc "build/tutorial-tests/07-solutions" :use-source t)
+(tutorial-check "07-solutions-1" [sum-of-squares <== [:sum [2 3 4]]] 29)
+(tutorial-check "07-solutions-2" [sum-of-squares <== [:sum nil]] 0)
+(tutorial-check "07-solutions-3" [counted-producer <== [:run [2 3 4]]] 3)
+(tutorial-check "07-solutions-4" [counted-producer <== [:run nil]] 0)
+(tutorial-check "07-solutions-5" [square-stream-client <== [:collect 1 4]] '(1 4 9 16))
+(tutorial-check "07-solutions-6" [square-stream-client <== [:collect 3 2]] nil)
+:q

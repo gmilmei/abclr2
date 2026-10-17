@@ -1,0 +1,214 @@
+\subsection{A Worked Job-Service Protocol}
+
+The complete solution is \filepath{tutorial/examples/03-jobs.abclr2}.
+It uses two workers to show that completion cannot be inferred from
+dispatch order. Each input is a two-element list \code{[id value]},
+where \code{id} is an integer. Each worker sends exactly one
+\code{[:done id status result]} reply, including when the value is invalid.
+This rule lets the monitor count completions without confusing a rejected
+job with a missing response.
+
+\noindent\begin{minipage}{\linewidth}
+\begin{tabular}{L{0.24\textwidth}L{0.40\textwidth}L{0.26\textwidth}}
+\textbf{Receiver} & \textbf{Message} & \textbf{Reply destination}\\\hline
+Dispatcher & \code{[:run jobs]} & The original caller.\\
+Monitor factory & \code{[:new count destination]} & The dispatcher;
+returns a fresh monitor object.\\
+Worker & \code{[:square id value]} & The batch's monitor.\\
+Monitor & \code{[:done id status result]} & After the last completion,
+sends a report to the original caller.\\
+\end{tabular}
+\end{minipage}
+
+The workers deliberately use the same behavior; the second definition
+creates another independent object:
+
+\wholelisting[firstline=2,lastline=14]{tutorial/examples/03-jobs.abclr2}
+
+The monitor factory captures the batch's final destination.
+Each created monitor has its own counters and result list:
+
+\wholelisting[firstline=16,lastline=33]{tutorial/examples/03-jobs.abclr2}
+
+The dispatcher creates the monitor before submitting any work.
+It routes even job identifiers to one worker and odd identifiers
+to the other, keeping \code{@ monitor} on every request:
+
+\sourcelisting[firstline=35]{tutorial/examples/03-jobs.abclr2}
+
+The caller waits on the dispatcher, but the dispatcher handler ends after
+dispatching. The monitor sends the eventual reply to the caller's \code{R}.
+The empty case replies immediately because there will be no worker
+completions to trigger the monitor.
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "tutorial/examples/03-jobs" :use-source t)
+[dispatcher <== [:run [[1 2] [2 3] [3 :bad]]]]
+; => (:REPORT 2 1 ((... completion entries ...)))
+[dispatcher <== [:run nil]]
+; => (:REPORT 0 0 NIL)
+\end{lstlisting}
+\end{codeblock}
+
+The completion entries are \code{(1 :OK 4)}, \code{(2 :OK 9)}, and
+\code{(3 :FAILED :NOT-A-NUMBER)}. Their order is not part of the interface.
+The automated check sorts entries by identifier before comparing them.
+The counts, identifiers, statuses, and computed values are what the
+protocol promises.
+
+\subsection{Invariants and Limits}
+
+For every monitor, \code{remaining + successful + failed} equals the
+number of submitted jobs. A reply is sent only when \code{remaining}
+reaches zero. Because each worker responds exactly once in this example,
+the final report means the whole batch has completed.
+
+The demonstration assumes well-formed pairs with integer identifiers,
+no duplicate completion messages, and no worker failures outside the
+declared invalid-value branch. Production extensions would need
+duplicate detection, timeout or cancellation policy, and validation
+of malformed submissions. A timeout is a policy decision, not proof
+that a remote computation stopped.
+
+\section{Worked Exercise Solutions}
+
+Run \filepath{07-solutions.abclr2} after attempting the exercises:
+
+\begin{lstlisting}
+(inc "tutorial/examples/07-solutions" :use-source t)
+\end{lstlisting}
+
+\subsection{Exercise 1: Sum of Squares}
+\label{sol:squares}
+
+\sourcelisting[firstline=3,lastline=9]{tutorial/examples/07-solutions.abclr2}
+
+\begin{lstlisting}
+[sum-of-squares <== [:sum [2 3 4]]]   ; => 29
+[sum-of-squares <== [:sum nil]]       ; => 0
+\end{lstlisting}
+
+The temporary accumulator belongs to one invocation.
+An empty \code{dolist} leaves it at its initial value, so the result
+is zero without a special case.
+
+\paragraph{Back to the original.}
+In Section~\ref{sec:original-future}, \code{tree2leaves} also keeps
+handler-local working data, but rewrites the remaining tree instead of
+adding to an accumulator. Why is a fixed \code{cdr} step not enough there?
+\emph{Answer:} a matched clause may expose a nested head and tail as new
+work. Follow the rewritten tree, not just the original list's next element.
+
+\subsection{Exercise 2: An Account Factory and a Transfer}
+\label{sol:transfer}
+
+The factory returns an anonymous object for each \code{:new} request.
+Its initializer is copied into a separate state binding.
+Initial balances must be nonnegative integers; this is a precondition,
+not a check performed by the factory. Deposit and withdrawal amounts
+are checked by the account handlers.
+
+\wholelisting[firstline=3,lastline=27]{tutorial/examples/02-accounts.abclr2}
+
+\begin{lstlisting}
+(inc "tutorial/examples/02-accounts" :use-source t)
+[alice <== [:transfer bob 30]]     ; => :TRANSFERRED
+[alice <== :balance]               ; => 70
+[bob <== :balance]                 ; => 50
+[alice <== [:transfer alice 10]]   ; => :REJECTED
+\end{lstlisting}
+
+The self-transfer guard avoids a synchronous wait on the current object.
+The demonstration uses trusted recipients and a sequential caller.
+The recipient is credited before the sender is debited, and the two
+changes are not atomic together. Opposing simultaneous transfers can
+form a wait cycle. A production transfer protocol would need reservations
+and a defined commit/cancel procedure; changing one send to past-type
+alone does not solve that problem.
+
+\paragraph{Back to the original.}
+Why can the inherited feather query in Section~\ref{sec:original-inherit}
+forward a destination, while this transfer waits for the deposit result?
+\emph{Answer:} the inherited script can answer the original caller itself;
+the transfer handler still needs the recipient's result before deciding
+whether to debit its own state and report success.
+
+\subsection{Exercise 3: Count Only After Acknowledgment}
+\label{sol:count}
+
+The solution creates a fresh consumer for each run. Every item returns
+its post-increment count to a future, and the producer consumes exactly
+as many acknowledgments as it submitted items:
+
+\wholelisting[firstline=11,lastline=25]{tutorial/examples/07-solutions.abclr2}
+
+\begin{lstlisting}
+[counted-producer <== [:run [2 3 4]]]   ; => 3
+[counted-producer <== [:run nil]]       ; => 0
+\end{lstlisting}
+
+The final count is queried only after all increments have been acknowledged.
+The local consumer prevents another batch from affecting the result.
+Each \code{next-value} may wait, but no worker waits back on the producer,
+so this protocol does not introduce a circular dependency.
+
+\paragraph{Back to the original.}
+Why does this client count replies, while \code{print-leaves} waits for
+\code{:finish}? \emph{Answer:} this protocol submits a known number of
+items and requires exactly one reply per item. The original tree walker
+sends a stream of leaves whose length the consumer does not know in advance.
+Pcontrol's two-child join (Section~\ref{sec:pcontrol-fib}) is another
+known-count protocol; it must collect two answers, not merely the first.
+
+\subsection{Exercise 4: A Tagged Stream}
+\label{sol:stream}
+
+\wholelisting[firstline=27]{tutorial/examples/07-solutions.abclr2}
+
+\begin{lstlisting}
+[square-stream-client <== [:collect 1 4]]
+; => (1 4 9 16)
+\end{lstlisting}
+
+Values arrive inside \code{[:value x]}, while \code{:done} is a distinct
+terminal message. The client unwraps only the value messages.
+This separation remains useful even if the data domain later includes
+keywords or lists.
+
+\paragraph{Back to the original.}
+Would renaming \code{:finish} to another keyword in the original tree
+walker solve its marker collision? \emph{Answer:} no; that keyword could
+also occur as a leaf. The value wrapper distinguishes the \emph{role}
+of a message instead of reserving one possible data value.
+
+\subsection{Exercise 5: Unless at the Meta-Level}
+\label{sol:unless}
+
+Add this handler before the choice evaluator's fallback:
+
+\sourcelisting[firstline=19,lastline=24]{tutorial/examples/05-reflection.abclr2}
+
+When the predicate is true, reply to \code{C} with \code{nil}.
+Otherwise evaluate the compiled body in its captured environment.
+The test object's \code{:unless} handler invokes this protocol:
+
+\begin{codeblock}
+\begin{lstlisting}
+[choice-test <== [:unless 3]]   ; => 3
+[choice-test <== :selected]     ; => :UNLESS
+[choice-test <== [:unless 8]]   ; => NIL
+[choice-test <== :selected]     ; => :UNLESS (unchanged)
+\end{lstlisting}
+\end{codeblock}
+
+The unchanged state verifies that the body was skipped for an even input.
+Both control-flow paths still send a result to the caller's continuation.
+
+\paragraph{Back to the original.}
+Compare \code{my-if} (Section~\ref{sec:original-if}) and
+\code{with-interrupt} (Section~\ref{sec:interrupt}). Where does each
+reified request go? \emph{Answer:} \code{my-if}, like our choice form,
+uses the evaluator; \code{with-interrupt} uses the application's metaobject.
+For either route, trace the saved continuation separately from the
+application handler's eventual \code{!} reply.

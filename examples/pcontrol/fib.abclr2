@@ -1,0 +1,90 @@
+;;; -*- Mode:abcl1; -*-
+;;;
+
+[object fib-gen-gen
+  (script
+   (=> [:new fib-gen-priority]
+       ![object fib-gen
+	  (group pcontrol)
+	  (priority fib-gen-priority)
+	  (script
+	   (=> [:new progress]
+	       ![object fib
+		  (priority progress)
+		  (state [sub-node-value := nil]
+			 [reply := nil])
+	  
+		  (script
+		   (=> [:ans n]
+		       (if sub-node-value
+			   (progn
+			     [reply <= [:ans (+ sub-node-value n)]]
+			     [p-monitor <= :object-dead])
+			   [sub-node-value := n]))
+		   (=> 1
+		       ![:ans 1]
+		       [p-monitor <= :object-dead])
+		   (=> 2
+		       ![:ans 1]
+		       [p-monitor <= :object-dead])
+		   (=> n @ R
+		       [reply := R]
+		       [[fib-gen <== [:new (- n 1)]] <= (- n 1) @ Me]
+		       [[fib-gen <== [:new (- n 2)]] <= (- n 2) @ Me]))]))]))]
+
+[object test-pc
+  (script
+   (=> [:start n]
+       (temporary [fib-gen
+		   := [fib-gen-gen <== [:new 0]]]
+		  [afile := (format nil "fib-active-pc-~D"
+				    n)]
+		  [ofile := (format nil "fib-object-pc-~D"
+				    n)])
+       [[meta [pcontrol <== :evaluator]]
+	<= [:set-queue [pqueue-gen <== [:new #'< :key #'first]]]]
+       (format t "starts~%")
+       [p-monitor <= :reset]
+       [p-monitor <= [:monitor
+		      (make-pathname ;;:directory ":/home/users/masuhara/"
+				     :name afile
+				     :type "log")
+		      (make-pathname ;;:directory ":/home/users/masuhara/"
+				     :name ofile
+				     :type "log")]]
+       (format t "Fibonacci(~D) = ~S~%"
+	       n
+	       [[fib-gen <== [:new n]] <== n])
+       [p-monitor <= :stop]
+       !t
+       ))]
+
+[object test-np
+  (script
+   (=> [:start n]
+       (temporary [fib-gen
+		   := [fib-gen-gen <== [:new 0]]]
+		  [afile := (format nil "fib-active-np-~D"
+				    n)]
+		  [ofile := (format nil "fib-object-np-~D"
+				    n)])
+       [[meta [pcontrol <== :evaluator]]
+	<= [:set-queue [queue-gen <== :new]]]
+       (format t "starts~%")
+       [p-monitor <= :reset]
+       [p-monitor <= [:monitor
+		      (make-pathname ;;:directory ":/home/users/masuhara/"
+				     :name afile
+				     :type "log")
+		      (make-pathname ;;:directory ":/home/users/masuhara/"
+				     :name ofile
+				     :type "log")]]
+       (format t "Fibonacci(~D) = ~S~%"
+	       n
+	       [[fib-gen <== [:new n]] <== n])
+       [p-monitor <= :stop]
+       !t
+       ))]
+
+
+

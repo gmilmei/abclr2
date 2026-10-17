@@ -1,0 +1,32 @@
+;;; Time Warp: group definition
+;;; Feb. 15, 1992 by MASUHARA, H.
+
+[group TW-group
+  (meta-gen TW-meta-gen)
+  (evaluator [TW-eval-gen 
+              <== [:new [pqueue-gen <== [:new #'< :key #'first]]
+                        (create-primary-eval group)]])
+  (script
+   (=> [:change-scheduler new-scheduler]
+       [new-scheduler 
+         <= [:set [[[meta evaluator] <== :queue] <== :listify]]]
+       [[meta evaluator] <= [:set-scheduler new-scheduler]])
+   (=> :reset-monitor
+       [TW-meta-gen <= [:set-monitor [monitor-gen <== :new]]])
+   (=> :count @ R
+       [meta-gen <= :count @ R])
+   (=> :eval-count @ R
+       [[meta evaluator] <= :count @ R])
+   (=> :reset-eval
+       [[meta evaluator] <= :reset-counter])
+   (=> :schedulable-eval
+       [evaluator := [TW-eval-gen 
+		      <== [:new [pqueue-gen <== [:new #'< :key #'first]]
+				(create-primary-eval group)]]])
+   (=> :non-reifying-eval
+       [evaluator := [TW-non-reifying-eval-gen
+		      <== [:new (create-primary-eval group)]]])
+   (=> :no-schedule-eval
+       [evaluator := [TW-no-schedule-eval-gen
+		      <== [:new (create-primary-eval group)]]])
+   )]

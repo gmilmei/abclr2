@@ -1,0 +1,20 @@
+;; Supplemental application using the unchanged original Time Warp runtime.
+;; Run in a scratch copy of examples/time-warp/; tw-load uses relative names.
+(inc "tw-load" :use-source t)
+[TW-group <= :reset-monitor]
+
+[object rollback-sink
+ (group TW-group)
+ (state [value := 0] [trace := nil])
+ (script
+  (=> [:value n]
+   [value := n]
+   [trace := (cons (list LVT n) trace)]))]
+
+[object rollback-source
+ (group TW-group)
+ (state [total := 0])
+ (script
+  (=> [:add n]
+   [total := (+ total n)]
+   [rollback-sink <= [:value total] :vrt (+ LVT 1)]))]

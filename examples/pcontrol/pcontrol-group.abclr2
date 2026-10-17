@@ -1,0 +1,16 @@
+;;; -*- Mode:abcl1; -*-
+;;; Parallelism controlling group
+
+[object primary-eval-gen
+  (script
+   (=> [:new GMgr]
+       !(r2sys::create-primary-eval GMgr)))]
+
+[group pControl
+  (meta-gen priori-meta-gen)
+  (evaluator [multi-eval-gen <== [:new primary-eval-gen 4]])
+  (script
+   (=> [:new StateSpec LexEnv ScriptSet :priority priority] @ C
+       [meta-gen <= [:new StateSpec LexEnv ScriptSet evaluator Me
+			  priority] @ C]))
+  ]

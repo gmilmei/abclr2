@@ -1,0 +1,569 @@
+;;; -*- Mode: Outline -*-
+;;; ABCL/R2 User's Guide (In Japanese/Kanji)
+*Title
+		       ABCL/R2 ユーザーズガイド
+
+			       増原英彦
+		       東京大学理学部情報科学科
+		    (masuhara@is.s.u-tokyo.ac.jp)
+
+初版:	1992年 8月 6日
+変更:   1992年11月24日		速達メッセージに関して
+変更:	1993年 1月11日		トップレベルコマンドについて
+変更:	1993年 6月14日		特殊形式 reify-args について
+追加:	1994年 7月28日		レキシカル変数について
+追加:	1994年 7月28日		イベント処理について
+
+* はじめに
+
+本ガイドは、ABCL/R2 特有の機能・使用方法について ABCL/1 [2] と異なる部
+分を中心に解説したものです。読者が『ABCL/1 ユーザーズガイド(暫定版)』
+にあらかじめ目を通していることを仮定して書かれています。(『ABCL/1 ユー
+ザーズガイド(暫定版)』は、[2] の Appendix にある ``The ABCL/1 User's
+Guide'' の邦訳です。)
+
+  ABCL/R2 は自己反映計算の機能を持った並列オブジェクト指向言語です。本
+システムでは、その(非自己反映的)前身である ABCL/1 の機能の大部分をサポー
+トしつつ、Hybrid Group Architecutre に基づく自己反映計算を可能にしてい
+ます。ABCL/R2 の言語仕様の詳細については [1] を参照して下さい。
+
+* ABCL/1 との相異
+
+ABCL/R2 では ABCL/1 の多くの機能をサポートしていますが、一部の機能が使
+えない、あるいは機能が制限されています。以下では (1) サポートされてい
+ないもの (2) 機能が制限されているもの (3) 使用できるが注意が必要なもの 
+(4) 新たにつけ加えられたもの(自己反映計算関連を除く) に分けて説明しま
+す。
+
+** サポートされていない機能
+
+  ABCL/1 の持ついくつかの機能のうち、現版では以下のものがサポートされ
+ていません。(このうちいくつかの機能は将来の版でサポートされる可能性が
+あります。)
+
+*** Wait-For, Wait-For-Loop 形式
+  Wait-for, wait-for-loop は、スクリプト実行中に特定のメッセージを待つ
+形式ですが、サポートされていません。
+
+*** Match-Loop 形式
+  Match-loop 形式は、match 形式をくりし実行するものですが、サポートさ
+れていません。
+
+*** 同期並列送信形式
+  同期並列送信形式とは、以下の例のように、複数のメッセージ同時に送信し、
+結果を同期して待つ形式です。
+	{[motorX <== [:step 30]] [motorY <== [:step 20]]}
+  現版ではサポートされていません。
+
+*** ルーチンコール
+  ルーチンコールは、オブジェクトの内部で再帰やコード共有をおこなうもの
+ですが、サポートされていません。
+
+*** 一部の Common Lisp の形式
+				 、、
+  現版の ABCL/R2 でサポートされているCommon Lisp の特殊形式は以下
+のとおりです。
+
+	declare		function	if
+	let		let*		progn
+	quote		setq
+
+従って、ABCL/1 でサポートされていた tagbody/go, block/return,
+multiple-value 等は使用できません。但し、ABCL/R2 では do 形式(Common
+Lisp ではマクロ)を特殊形式としてサポートします。(マクロ dolist,
+dotimes は do 形式に展開されるマクロとして定義されます。)
+
+なお、declare 形式で宣言される内容はは無視されます。
+
+*** 自殺形式
+  自殺形式とは、 (suicide) によってオブジェクトの実行を(将来に渡って)
+止めるものですが、サポートされていません。
+
+*** Match 形式中の拘束条件
+  Match 形式はサポートされていますが、中に拘束条件が書けません。
+    可: (match x
+	  (is 0 !t)
+	  (is n !(1- n)))
+
+    不可: (match x
+	    (is n where (zerop n)
+		!t)
+	    (is n
+		!(1- n)))
+
+** 機能が制限されているもの
+
+*** 速達メッセージ・アトミック形式
+
+  速達メッセージを使用するには、ライブラリ `express.abclr2' で提供され
+るエバリュエータ・メタオブジェクトジェネレータが必要です。また、送り手・
+受け手にそれぞれ条件が付きます。
+
+  まず、送り手のオブジェクトのエバリュエータ(つまり、送り手のオブジェ
+クトが属するグループのエバリュエータ)はオブジェクト `eval/expres-gen' 
+によって作られたものである必要があります。次に、受け手のオブジェクトは
+メタオブジェクトジェネレータ `meta/express-gen' によって作られたオブジェ
+クトであることが必要です。
+
+  速達メッセージは以下のいずれかの形式によって送信されます。
+	[<受け手> <= <メッセージ> :express]
+	[<受け手> <= <メッセージ> @ <返答先> :express]
+	[<受け手> <== <メッセージ> :express]
+
+  受け手のオブジェクトがこの速達メッセージを受け取ると、実行中のスクリ
+プトを停止させた後にパタンマッチ/実行がおこなわれます。ATOMIC 形式によっ
+て、特定の式実行中に速達メッセージによる割り込みを禁止することができま
+す。これらの機能は文法をのぞいて ABCL/1 のものと同一です。
+
+  速達メッセージの使用例はファイル `examples/misc/express-ex.abclr2' 
+を参照して下さい。
+
+*** ラムダ・クロージャ
+
+  スクリプト中に書くラムダ・クロージャで参照できる変数は、そのスクリプ
+トに渡された引数のみです。また、ラムダ・クロージャ中ではメッセージ送信・
+オブジェクト生成等の式は実行できません。
+
+    可:
+    [object foo
+     (state [x := 0])
+     (script
+      (=> [:bar n]
+	  !(funcall #'(lambda (x y) (+ x y)) x n)))]
+
+    不可:
+    [object foo
+     (state [x := 0])
+     (script
+      (=> [:bar n]
+	  !(funcall #'(lambda () (+ x n)))))]
+
+*** 拘束条件
+
+  スクリプトのパタン部に拘束条件 (where 節) を持つようなオブジェクトを
+利用するには、ライブラリ `heavy-meta.abclr2' を予めロードしておくこと
+が必要です。このようなオブジェクトがコンパイル/評価されると、メタオブ
+ジェクトジェネレータとして `heavy-meta' が自動的に指定されます。
+
+  このようなオブジェクトのパタンマッチは以下のようなアルゴリズムでおこ
+なわれます。注意すべきは、パタン/拘束条件がマッチするスクリプトが一つ
+もなかったメッセージが捨てられるという点です。
+
+    (let ((MRS <a triplet <Message, Reply, Sender> dequeued from the queue>)
+	  (matched? nil))
+      (dolist (script <a list of scripts>)
+	(if (and <Does the pattern of script match with MRS?>
+		 <Is the constraint satisfied?>)
+	  (progn <execute the body of script>
+		 (setq matched? t)
+		 <return-from dolist-loop>)))
+      (if (not matched?)
+	  <discard MRS>))
+
+
+** 使用に注意が必要な機能
+
+*** マルチキャスト
+
+  マルチキャスト機能を利用するには、ライブラリ `multicast.abclr2' によっ
+て提供されるオブジェクト `multicast-eval-gen' が必要です。さらに、マル
+チキャストをおこなうオブジェクトのエバリュエータは、オブジェクト 
+`multicast-eval-gen' によって作られたものである必要があります。
+
+  ただしトップレベルから利用するには、予め
+	[*eval* := [multicast-eval-gen <== [:new *eval*]]]
+としておくことで可能です。これは、トップレベルの式の評価は大域変数 
+`*eval*' に束縛されているオブジェクトによっておこなわれるためです。
+
+*** 未来型メッセージ授受
+
+  未来型のメッセージを送受信するには、ライブラリ `future.abclr2' をロー
+ドしておく必要があります。
+
+** 新たにつけ加えられたもの・仕様が異なるもの
+
+*** プログラムのロード・コンパイル
+
+ (INC pathname &key (use-source nil) (verbose t) (compile nil))
+							   [特殊形式]
+
+  パス名 pathname が示す ABCL/R2 プログラムを Lisp に変換しロードしま
+す。ただしそのプログムがすでに Lisp に変換されており、キーワード 
+use-source の値が nil の場合は、Lisp への変換はおこなわれません。また、
+キーワード compile の値が 非-nil の場合は、変換された Lisp プログラム
+をコンパイルした後にロードされます。
+
+  ロードされるプログラムは INC が実行された環境・グループの下でおこな
+われます。
+
+  パス名はディレクトリ(directory)と名前(name)のみから構成され、タイプ
+(type)は省略します。例えば "/foo/bar/baz.abclr2" というファイルは
+	(inc "/foo/bar/baz")
+と指定します。
+
+ (COMP pathname &key (use-source nil) (verbose t))	     [マクロ]
+
+  引数 pathname が示す ABCL/R2 プログラムを Lisp に変換した後にロード
+します。過去にコンパイルされていてる場合は何もしません。ただし 
+use-source の値が非-nil 場合には、Lisp ファイル・ fasl ファイルの有無
+に関わらず Lisp への変換からおこないます。
+
+  ファイルの種類とタイプ名の対応は以下のとおりです。
+	ABCL/R2 ファイル	"abclr2"
+	Lisp ファイル		"lsp"
+	Fasl ファイル		(使用する Lisp に依存)
+
+*** ライブラリのロード
+
+ (INC-LIB pathname &key (use-source nil) (verbose t) (compile nil))
+							    [特殊形式]
+
+  ABCL/R2 プログラムをロードします。INC と異なるのはロードされるプログ
+ラムは、トップレベルの環境・デフォルトのグループの下で評価される点です。
+
+ (REQUIRE module-name &key (use-source nil) (verbose t) (compile nil))
+							      [マクロ]
+
+  変数 *modules* に module-name が示すモジュール名が登録されていなかっ
+た場合、module-name の示す ABCL/R2 プログラムを INC-LIB によってロード
+します。このとき、変数 *library-directories* 中のディレクトリからロー
+ドするファイルを探します。探されるファイル名はモジュール名が `foo' で
+あれば、 `foo.abclr2' となります。
+    変数 *modules* に module-name が示すモジュール名が登録されていた場
+合は何もしません。
+
+ (PROVIDE module-name)					      [マクロ]
+
+  変数 *modules* に module-name が示すモジュール名を追加します。
+
+※ REQUIRE, PROVIDE における module-name はシンボル・文字列のいずれで
+も構いません。
+
+ *MODULES*							[変数]
+
+  現在ロードされているモジュールのリスト。
+
+ *LIBRARY-DIRECTORIES*						[変数]
+
+  REQUIRE がモジュールを探す際の、ディレクトリの候補のリスト。左から順
+に探される。
+
+*** カレントディレクトリ
+ (CD &optional pathname)					[関数]
+
+  カレントディレクトリを pathname に移動します。Pathname が与えられな
+かった場合はホームディレクトリへ移動します。Pathname の表記は Common
+Lisp 依存です。
+
+ (PWD)								[関数]
+
+  カレントディレクトリを返します。
+
+*** 継続オブジェクト
+
+  メッセージを受け取る・転送するといった単純な動作のみをおこなうオブジェ
+クトには継続オブジェクトが利用できます。継続オブジェクトは次の形式によっ
+て生成されます。
+
+	[cont <pattern> <body>]
+
+  この形式は、 [object (script (=> <pattern> <body>))] という形式と等
+価なオブジェクトを生成します。ただし、前者の形式で生成した場合は、より
+高速に実行されます。
+
+注意: 継続オブジェクトを高速に実行するために、 <body> 部に書く式はルー
+プ・現在型のメッセージ等の実行の終了が保証されないものは書いてはいけま
+せん。また、 <body> 部は non-reifying objects と同様にコンパイルされる、
+つまり、自己反映計算の対象となりません。
+
+*** トップレベル
+
+  ABCL/1 のトップレベルコマンドのほとんどは ABCL/R2 ではトップレベルコ
+マンドとしては提供されていません。これらの一部(pwd, cd, inc, comp 等)
+は関数やマクロとして提供されていたり、リフレクティブライブラリによって
+ほぼ同様の機能が提供されています。また、単に実現されていないだけのコマ
+ンドもあります。
+
+  ABCL/R2 のトップレベルがサポートするコマンドは以下の二つです。その他
+のコマンドは、オブジェクトのスクリプトと同様に評価されます。
+
+	:q	システムを終了する
+	:reset	システムの再起動をする
+
+  また、エラー処理が現在のところ手抜き状態になっています。具体的には、
+エラーが起きると Lisp レベルのエラーメッセージを表示(※)した後に、可能
+な限り、処理を続行します。多くの場合、「現在形メッセージに対する返答が
+ない」という状態でシステムが停止するでしょう。Lisp システムによっては、
+※の時点で Lisp のデバッガが起動されることがあります。その場合は、デバッ
+ガを抜けた後に、処理を続行します。
+
+*** レキシカル変数
+
+  ABCL/1,/R2 のオブジェクトは、オブジェクトを定義した環境にあるレキシ
+カル変数 (lexical variables) を参照することができます。ABCL/1 では、レ
+キシカル変数の値は、 オジェクトの生成時のものがコピーされます。一方、
+ABCL/R2 では、その変数の参照時の値となります。
+
+  例えば、以下のようなプログラムを考えます。ABCL/1 では、オブジェクト 
+bar における n の更新は、他のオブジェクトの n に影響を与えません。一方、
+ABCL/R2 では、変数 n はオブジェクト foo, bar, baz で共有されているため、
+オブジェクトの実行順序によって結果が変わります。
+
+	[object foo
+	 (script
+	  (=> [:test n]
+	    (let ((bar [object (script (=> [:inc] [n := (+ n 1)]))])
+		  (baz [object (script (=> [:get] !n))]))
+	      [bar <= [:inc]]
+	      !(list n [baz <== [:get]]))))]
+	[foo <== [:test 10]]
+
+	==> (10 10) ; in ABCL/1
+	==> (10 10) or (10 11) or (11 10) or (11 11) ; in ABCL/R2
+
+  間違いを引き起こしやすい例として、do 形式中でオブジェクトを生成する
+場合があります。例えば、0 から 9 までの数について何らかの動作をするオ
+ブジェクトを作るとします。
+
+	(dotimes (i 10)
+	  ... [object subobj
+		(script (=> ... uses i ...))] ...)
+
+この場合、各 subobj が用いる i の値は、参照した時点の値なので、期待し
+た動作は保証されません。一方、下の例では、i* を保持する環境は、繰り返
+し毎に作成されるため、0 から 9 の i* についてオブジェクトが一つづつ対
+応することになります。
+   
+	(dotimes (i 10)
+	  (let ((i* i))
+	    ... [object subobj
+		  (script (=> ... uses i* ...))]))
+
+この仕様は、将来 ABCL/1 のものに変更される予定です。
+
+*** イペント処理
+
+  タイマや I/O などのイペント(Unix で言うところの signal)を、オブジェ
+クトへのメッセージによって処理するインターフェイスが用意されています。
+インターフェイスは、(1) Lisp レベルでイベント発生を通知するもの、(2)
+ABCL レベルでイベントをメッセージとして処理するものの二層に分かれてい
+ます。
+
+Lisp レベル:
+
+  イベントが発生した際には、(割り込みハンドラ等から)関数 
+R2SYS::SEND-SIGNAL を任意の引数で呼びます。関数が呼べない場合には、変
+数 R2SYS::*SIGNAL-REQUEST* を非 nil 値にします。
+
+ABCL レベル:
+
+  Lisp レベルで発生されたイベントは、大域変数 *SIGNAL-HANDLER* に束縛
+されるオブジェクトに [:signal ...] というメッセージによって通知されま
+す。メッセージの引数は、関数 R2SYS::SEND-SIGNAL の引数か、変数 
+R2SYS::*SIGNAL-REQUEST* の値です。デフォールトでは、全てのイベントを無
+視するオブジェクトが束縛されています。
+  この変数の値が NIL のときには、メッセージは送られません。
+
+* ABCL/R2 での自己反映計算
+
+ABCL/R2 の自己反映計算は [1] で提案された Hybrid Group Architecture 
+に基づいています。ただし、実現のためにいくつかの点において拡張・変更さ
+れています。以下では、それらの点を中心に解説します。
+
+** コンパイラ
+
+現版の ABCL/R2 システムでは [3] に示されているように、オブジェクトのス
+クリプトは部分的にコンパイルされます。その結果、エバリュエータの構造が
+[1] に示されていものと異なっている点があります。特に、以下の点に注意し
+て下さい:
+
+  (a)	エバリュエータが受け取るメッセージ [:do Exp Env Id Gid Eval] に
+	おいて `Exp' は部分コンパイル済みの式で、[<tag> <body>] の形を
+	している。 
+  (b)	式 [:compiled <body>] は引数として <継続,環境,オブジェクトID,
+	グループID,エバリュエータ> を受け取る Lisp のラムダ・クロージャ
+	である。
+  (c)	各式引数は評価済みである。例えば、`[x <= y @ z]' のような「過
+	去型のメッセージ送信」はメタレベルでは、次のようなエバリュエー
+	タへのメッセージ:
+		[:do [:send-past Target Message Reply] Env Id Gid Eval]
+	に対応します。このとき、パラメータ `Target' `Message' `Reply' 
+	の値はそれぞれ `x' `y' `z' を「評価した」値になっており、`x'
+	`y' `z' というシンボルではありません。
+	(`x' `y' `z' の「評価」をおこなうコードは、コンパイラによって
+	生成されます。)
+
+** 組み込みオブジェクト
+
+*** カーネルオブジェクト
+
+  グループカーネルオブジェクト(メタオブジェクトジェネレータ・エバリュ
+エータ・グループマネージャ)は多くの場合、システムによって自動的に生成
+されます。
+
+  ファイル `examples/misc/MCP.abclr2' 中のオブジェクト `MC-meta-gen,'
+`MC-eval,' `Meta-circular' は、このグループカーネルオブジェクトと等価
+な定義です。
+
+*** スクリプトオブジェクト
+
+  コンパイルされたスクリプトを、ユーザプロラムから操作するため、スクリ
+プトは、オブジェクトとしてアクセスされます。スクリプトオブジェクトが受
+け取れるメッセージはファイル `examples/misc/built-ins.abclr2' 中の定義
+を参照して下さい。
+
+  また、ユーザが定義する通常のオブジェクトをスクリプトとして用いること
+も可能です。ファイル `examples/misc/user-script.abclr2' や 
+`lib/heavy-meta.abclr2' を参考にして下さい。
+
+*** 大域オブジェクト
+
+  以下のオブジェクトが予め大域環境に定義されています。これらのオブジェ
+クトの動作はファイル `examples/misc/built-ins.abclr2' 中の定義を参照し
+て下さい。
+	env-gen		環境オブジェクトを生成するオブジェクト
+	queue-gen	キューを生成するオブジェクト
+	global-env	大域環境オブジェクト
+
+** 付加的引数
+
+  先に述べたように、現版の ABCL/R2 システムは、スクリプト式の部分コン
+パイルをおこなっています。ただし、ユーザが記述した付加的情報をメタレベ
+ルで扱えるようにするため、メッセージ送信式やオブジェクト定義式に付加的
+情報を記述することが可能です。
+
+  例えば、通常のメッセージ送信式 `[x <= y @ z]' は、コンパイラによって、
+エバリュエータへの式
+	[:send-past Target Message Reply]
+によって表わされます。一方、式 `[x <= y @ z :RVT t]' は通常のメッセー
+ジ送信式に加えて `:RVT' と `t' という付加情報を含んでいます。この式は、
+コンパイラによって、
+	[:send-past Target Message Reply :RVT T*]
+(ただし T* は t を評価した値)と表わされます。
+
+  この付加的情報は、実際にシステムの提供するライブラリでも利用されてい
+ます。詳しくはファイル `lib/express.abclr2' を参照して下さい。
+
+  この付加的情報が可能な形式はメッセージ送信・オブジェクト定義・代入の 
+3 種で、以下それぞれについて説明します。
+
+*** メッセージ送信式
+
+以下のメッセージ送信式
+
+	[E1 <= E2 @ E3 A1 ... An]
+	[E1 <== E2 A1 ... An]
+
+はそれぞれ、エバリュエータへの式
+
+	[:send-past E1* E2* E3* A1* ... An*]
+	[:send-now E1* E2* A1* ... An*]
+
+に変換される。(Ei*, Ai* はそれぞれ式 Ei, Ai を評価した値。)
+
+*** オブジェクト生成式
+
+以下のオブジェクト生成式
+
+	[object Name
+	 (meta-gen MGen)
+	 (group GMgr)
+	 (Tag1 Exp1)
+	 (Tag2 Exp2)
+	      :
+	 (TagN ExpN)
+	 (state [var := initValue])
+	 (script ...)]
+
+はエバリュエータへの式
+
+	[:object-def 'Name MGen* GMgr* StateSpec* ScriptSet* 
+			:Tag1 Arg1 :Tag2 Arg2 ... TagN ArgN]
+
+へと変換される。(ただし MGen*, GMgr*, Argi はそれぞれ MGen, GMgr, Expi 
+を評価した値、StateSpec* ScriptSet* はそれぞれ state 部・script 部をコ
+ンパイルした結果。)
+
+  例えば、式
+
+	[object foo
+	  (priority N)
+	  (script ...)]
+
+は、エバリュエータへの式
+
+	[:object-def 'foo nil nil nil <list of Scripts> :priority 10]
+
+となる。(ただし N=10 の場合。)
+
+*** 代入形式
+
+以下の代入形式
+
+	[Var := Exp A1 ... An]
+
+は実行時の環境へのメッセージ
+
+	[:set 'Var Exp1* A1* ... An*]
+
+へ変換される。(Exp1*, Ai* は Exp, Ai を評価した値。)
+
+
+** 特殊形式 refiy-args
+
+3-Lisp や ABCL/R に見られる、いわゆる自己反映手続き(reifying
+procedure)は、プログラムを解釈実行しているという強い前提があるため、
+ABCL/R2 の部分コンパイル方式の制約上、実現されていません。
+
+しかし、自己反映手続きの一部の機能は、特殊形式 reify-args で実現可能で
+す。
+
+ (reify-args         KEYWORD EXP1 ... EXPN)
+ (reify-args-to-meta KEYWORD EXP1 ... EXPN)		[特殊形式]
+
+この特殊形式が実行されると、まず KEYWORD が評価され、
+
+	[KEYWORD* EXPS ENV ID GID EVAL] @ C
+
+という形のメッセージが、評価器オブジェクトへ(reify-args の場合)、ある
+いは、その式を実行したオブジェクトのメタオブジェクト(reify-args-to-
+meta の場合)へ送られます。ただし、KEYWORD* は KEYWORD を評価した値、
+EXPS は EXP1 から EXPN を部分コンパイルしたデータをリストにしたもので
+す。
+
+特殊形式 reify-args が非自己反映オブジェクトのスクリプト中に出現する場
+合は、コンパイル時エラーとなります。
+
+この特殊形式の使い方については、examples/misc ディレクトリ中の 
+reify-args.abclr2 も参考にして下さい。
+
+* 参考文献
+
+[1] 
+@InProceedings{matsuoka91,
+  author = 	"Staoshi Matsuoka and Takuo Watanabe and Akinori Yonezawa",
+  title = 	"Hybrid Group Reflective Architecture for
+		 Object-Oriented Concurrent Reflective Programming",
+  booktitle = 	"European Conference on Object-Oriented Programming (ECOOP)",
+  year = 	"1991",
+}
+
+[2] 
+@Book{yonezawa90,
+  editor = 	"Akinori Yonezawa",
+  title = 	"ABCL: An Object-Oriented Concurrent System",
+  publisher = 	"MIT Press",
+  year = 	"1990",
+  address = 	"Cambridge, Massachusetts",
+}
+
+
+[3]
+@InProccedings{masuhara92,
+  author =	"Hidehiko Masuhara and Satoshi Matsuoka and Takuo
+		 Watanabe and Akinori Yonezawa",
+  title =	"Object-Oriented Concurrent Reflective Languages can
+		 be Implemented Efficiently",
+  booktitle =	"Proceedings of OOPSLA'92",
+  year =	"1992",
+}

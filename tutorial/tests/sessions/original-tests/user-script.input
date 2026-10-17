@@ -1,0 +1,13 @@
+(defun original-check (name actual expected)
+ (if (equal actual expected)
+   (format t "~&ORIGINAL-PASS ~A~%" name)
+   (error "ORIGINAL-FAIL ~A: got ~S expected ~S" name actual expected)))
+[*library-directories* := (list "@ROOT@/build/original-tests/lib/")]
+(inc "@ROOT@/build/original-tests/examples/misc/user-script" :use-source t)
+(original-check "before" [Monkey-Showman <== :try] "Scratch!")
+(original-check "audience-before" [Poor-Audience <== :try] "Scratch!")
+[[meta Monkey] <= [:add-script monkey-script]]
+(original-check "after" [Monkey-Showman <== :try] "Hansei")
+(original-check "audience-after" [Poor-Audience <== :try] "Scratch!")
+(format t "~&ORIGINAL-END user-script~%")
+:q

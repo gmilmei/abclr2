@@ -1,0 +1,41 @@
+
+(defun interrupt-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&INTERRUPT-PASS ~A~%" name)
+  (error "INTERRUPT-FAIL ~A got ~S expected ~S" name actual expected)))
+(defun read-probe (text)
+ (handler-case (progn (read-from-string text) :ok)
+  (reader-error () :reader-error)))
+(interrupt-check "bracket-without-comment" (read-probe "[a]") :ok)
+(interrupt-check "comment-before-element" (read-probe (format nil "[a ; comment~% b]")) :ok)
+(interrupt-check "comment-before-close" (read-probe (format nil "[a ; comment~% ]")) :reader-error)
+(inc "@ROOT@/build/interrupt-tests/interrupt-excerpt" :use-source t)
+(interrupt-check "empty-body" [test-with-interrupt <== [:run 0]] "Yeah! I did it!")
+(interrupt-check "normal-body" [test-with-interrupt <== [:run 10]] "Yeah! I did it!")
+(interrupt-check "early-interrupt" [test-with-interrupt-2 <== [:run 10 3]] "Time is up.")
+(interrupt-check "late-interrupt" [test-with-interrupt-2 <== [:run 10 30]] "Yeah! I did it!")
+(interrupt-check "after-interrupt" [test-with-interrupt <== [:run 2]] "Yeah! I did it!")
+[object interrupt-state-probe
+ (group with-interrupt)
+ (state [count := 0])
+ (script
+  (=> [:run n]
+   !(with-interrupt
+      (dotimes (i n) [count := (1+ count)])
+      (list :success count)
+      (list :failed count)))
+  (=> :count !count))]
+[object interrupt-probe-driver
+ (script
+  (=> [:run target n m] @ R
+   [target <= [:run n] @ R]
+   (dotimes (i m))
+   [[meta target] <= [:interrupt]]))]
+[probe-result := [interrupt-probe-driver <== [:run interrupt-state-probe 50 3]]]
+(interrupt-check "failure-branch" (first probe-result) :failed)
+(interrupt-check "partial-work" (and (> (second probe-result) 0) (< (second probe-result) 50)) t)
+(interrupt-check "effects-not-undone" [interrupt-state-probe <== :count] (second probe-result))
+(interrupt-check "next-run-success" (first [interrupt-state-probe <== [:run 2]]) :success)
+(interrupt-check "persistent-effects" [interrupt-state-probe <== :count] (+ (second probe-result) 2))
+(format t "~&INTERRUPT-END~%")
+:q

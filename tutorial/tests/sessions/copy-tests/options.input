@@ -1,0 +1,29 @@
+(defun copy-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&COPY-PASS ~A~%" name)
+  (error "COPY-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/copy-tests/11-copy" :use-source t)
+[group copy-target-group]
+[group-clone := [copier <== [:copy copy-source :group copy-target-group]]]
+(copy-check "target-group" (r2sys::group-of group-clone) copy-target-group)
+(copy-check "target-evaluator" [[meta group-clone] <== :evaluator] [copy-target-group <== :evaluator])
+[source-group := (r2sys::group-of copy-source)]
+[source-default := [source-group <== :evaluator]]
+[override := (r2sys::create-primary-eval source-group)]
+[[meta copy-source] <= [:set-evaluator override]]
+[ordinary-clone := [copier <== [:copy copy-source]]]
+(copy-check "source-override" [[meta copy-source] <== :evaluator] override)
+(copy-check "plain-copy-uses-group-default" [[meta ordinary-clone] <== :evaluator] source-default)
+[source-generator := [source-group <== :meta-gen]]
+[meta-clone := [copier <== [:copy copy-source :meta-gen source-generator]]]
+(copy-check "explicit-generator-keeps-source-evaluator" [[meta meta-clone] <== :evaluator] override)
+[explicit-clone := [copier <== [:copy copy-source :meta-gen source-generator :eval [copy-target-group <== :evaluator]]]]
+(copy-check "explicit-evaluator" [[meta explicit-clone] <== :evaluator] [copy-target-group <== :evaluator])
+(copy-check "explicit-generator-keeps-source-group" (r2sys::group-of explicit-clone) source-group)
+[copy-alias := copy-source]
+[old-alias := copy-alias]
+(copy copy-alias)
+(copy-check "macro-rebinds-alias" (eq copy-alias old-alias) nil)
+(copy-check "other-reference-unchanged" (eq old-alias copy-source) t)
+(format t "~&COPY-END~%")
+:q

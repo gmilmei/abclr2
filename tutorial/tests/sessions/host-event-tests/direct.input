@@ -1,0 +1,32 @@
+(defun event-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&EVENT-PASS ~A~%" name)
+  (error "EVENT-FAIL ~A got ~S expected ~S" name actual expected)))
+[saved-handler := *signal-handler*]
+(inc "@ROOT@/build/host-event-tests/14-host-events" :use-source t)
+(event-check "load-does-not-install" *signal-handler* saved-handler)
+(event-check "empty-inbox" [event-inbox <== :events] nil)
+[*signal-handler* := event-inbox]
+(r2sys:send-signal :tick 7)
+(event-check "direct-arguments" [event-inbox <== :events] '(((:tick 7) nil nil)))
+(r2sys:send-signal)
+(event-check "zero-arguments" (first (last [event-inbox <== :events])) '(nil nil nil))
+(r2sys:send-signal nil)
+(event-check "nil-argument-is-event" (first (last [event-inbox <== :events])) '((nil) nil nil))
+(r2sys:send-signal '(:tick 8))
+(event-check "list-is-one-argument" (first (last [event-inbox <== :events])) '(((:tick 8)) nil nil))
+(event-check "four-events" (length [event-inbox <== :events]) 4)
+(event-check "clear" [event-inbox <== :clear] :cleared)
+[*signal-handler* := nil]
+(r2sys:send-signal :disabled)
+(event-check "disabled-drops" [event-inbox <== :events] nil)
+[*signal-handler* := event-inbox]
+(event-check "enable-does-not-replay" [event-inbox <== :events] nil)
+(r2sys:send-signal :enabled)
+(event-check "enabled-receives" [event-inbox <== :events] '(((:enabled) nil nil)))
+[*signal-handler* := saved-handler]
+(event-check "restore-identity" *signal-handler* saved-handler)
+(r2sys:send-signal :restored-default)
+(event-check "restored-bypasses-inbox" (length [event-inbox <== :events]) 1)
+(format t "~&EVENT-END~%")
+:q

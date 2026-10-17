@@ -1,0 +1,81 @@
+\subsection{A Future Is a Reply Stream}
+\label{sec:futures}
+
+The supplied future library can collect more than one reply from a request.
+The send syntax uses a dollar sign:
+\code{[receiver <= message \$ future-object]}.
+Each \code{!} in the receiver's handler appends another reply to the future.
+This is more general than a promise that resolves to one value.
+
+To run the following example from the repository root:
+
+\begin{lstlisting}
+(inc "tutorial/examples/04-futures" :use-source t)
+[range-client <== [:collect 1 4]]
+; => (1 2 3 4)
+\end{lstlisting}
+
+The file loads the supplied future library. Here is the server:
+
+\wholelisting[firstline=4,lastline=11]{tutorial/examples/04-futures.abclr2}
+
+The server sends each integer and then \code{:done}.
+The terminal message is part of our protocol: futures themselves do not
+know that a producer has finished.
+
+\wholelisting[firstline=12]{tutorial/examples/04-futures.abclr2}
+
+The initial send is asynchronous. Each \code{next-value} waits if no reply
+is currently available. Thus waiting occurs at the point where the client
+needs a particular element, rather than at the initial request.
+The sentinel is removed from the stream but excluded from the result.
+The range from 3 to 2 is empty and returns \code{nil}; the server still
+sends \code{:done}, so the client does not wait forever.
+
+\subsection{Peeking, Consuming, and Readiness}
+
+\begin{longtable}{L{0.39\textwidth}L{0.51\textwidth}}
+\textbf{Operation} & \textbf{Behavior in the supplied implementation}\\\hline
+\endhead
+\code{(make-future)} & Create and initialize an empty future.\\
+\code{(ready? f)} & Return whether at least one reply is buffered.\\
+\code{(next-value f)} & Wait for and remove the next reply.\\
+\code{(next-value f :remove nil)} & Wait for the next reply without removing it.\\
+\code{(all-values f :wait nil)} & Return the current buffered replies,
+or \code{nil} if none exist; removal defaults to true.\\
+\code{(reset-future f)} & Send a reset request; use only when old producers
+and readers have finished.\\
+\end{longtable}
+
+The actual macros in \filepath{src/user.lsp} default \code{:remove}
+to true for \code{next-value} and \code{all-values}; an old comment
+in the library header gives a different default.
+\code{all-values} is a snapshot of buffered values, not an operation
+that waits for a terminal marker. Its \code{:wait t} default waits
+when the buffer is empty, but does not establish producer completion.
+
+For stream consumers, use \code{next-value} and an explicit terminal
+marker. Use \code{all-values} with \code{:wait nil} to inspect the replies
+currently buffered; a snapshot is not a producer-completion signal.
+
+\begin{codeblock}
+\begin{lstlisting}
+(let ((f (make-future)))
+  [range-server <= [:range 8 8] $ f]
+  (list (next-value f :remove nil)
+        (next-value f)
+        (next-value f)
+        (ready? f)))
+; => (8 8 :DONE NIL)
+\end{lstlisting}
+\end{codeblock}
+
+The implementation records one waiting consumer destination.
+Treat each future as a stream with one active consumer; use a separate
+future per request rather than sharing one among unrelated readers.
+
+\paragraph{Exercise 4.}
+Change the server to send squares, keeping the terminal marker.
+Then change the payload to \code{[:value n]} so that a legitimate data
+value cannot be confused with \code{:done}.
+Compare the two message shapes with Section~\ref{sol:stream}.

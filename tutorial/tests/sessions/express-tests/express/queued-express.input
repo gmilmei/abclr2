@@ -1,0 +1,48 @@
+; Isolate :end queue progression using the existing meta-level controls.
+; Lock a dormant receiver, submit requests, release, then explicitly send :end.
+; This stages the branches; it does not claim an active-clock/preemption test.
+(defun express-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&EXPRESS-PASS ~A~%" name)
+  (error "EXPRESS-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/express-tests/express/express" :use-source t)
+(inc "@ROOT@/build/express-tests/express/express-ex" :use-source t)
+[object queue-sink-gen
+ (script (=> :new ![object (state [items := nil])
+  (script (=> :values !(reverse items))
+          (=> value [items := (cons value items)]))]))]
+[queue-observer := [queue-sink-gen <== :new]]
+[queue-replies-a := [queue-sink-gen <== :new]]
+[queue-replies-b := [queue-sink-gen <== :new]]
+[object queue-target (group express) (meta-gen meta/express-gen)
+ (script
+  (=> [:item tag] @ R from S
+      [queue-observer <= [tag R S]]
+      [R <= tag])
+  (=> :barrier !:drained))]
+[object queue-sender-gen
+ (script (=> :new ![object (group express)
+  (script
+   (=> [:normal tag dest] [queue-target <= [:item tag] @ dest] !:submitted)
+   (=> [:express tag dest] [queue-target <= [:item tag] @ dest :express] !:submitted))]))]
+[queue-sender-a := [queue-sender-gen <== :new]]
+[queue-sender-b := [queue-sender-gen <== :new]]
+(express-check "initial-dormant" [queue-target <== :barrier] :drained)
+(express-check "lock" [[meta queue-target] <== :lock] :ok)
+(express-check "submit-e1" [queue-sender-b <== [:express :e1 queue-replies-b]] :submitted)
+(express-check "submit-e2" [queue-sender-a <== [:express :e2 queue-replies-a]] :submitted)
+(express-check "queued-not-executed" [queue-observer <== :values] nil)
+[[meta queue-target] <= :release]
+[[meta queue-target] <= :end]
+(express-check "drained" [queue-target <== :barrier] :drained)
+(express-check "dispatch-order-and-envelope" [queue-observer <== :values]
+ (list (list :e1 queue-replies-b queue-sender-b)
+       (list :e2 queue-replies-a queue-sender-a)))
+(express-check "replies-a" [queue-replies-a <== :values] '(:e2))
+(express-check "replies-b" [queue-replies-b <== :values] '(:e1))
+[[meta queue-target] <= :end]
+(express-check "empty-end-no-duplicate" [queue-observer <== :values]
+ (list (list :e1 queue-replies-b queue-sender-b)
+       (list :e2 queue-replies-a queue-sender-a)))
+(format t "~&EXPRESS-END~%")
+:q

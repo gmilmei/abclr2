@@ -1,0 +1,19 @@
+
+(defun pc-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&PC-PASS ~A~%" name)
+      (error "PC-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "pqueue-eval" :use-source t)
+[q := [pqueue-gen <== [:new #'< :key #'first]]]
+(pc-check "empty-initially" [q <== :empty?] t)
+[q <= [:enq [4 :large]]]
+[q <= [:enq [1 :small]]]
+[q <= [:enq [2 :middle]]]
+(pc-check "small-first" [q <== :deq] '(1 :small))
+(pc-check "middle-second" [q <== :deq] '(2 :middle))
+(pc-check "large-last" [q <== :deq] '(4 :large))
+(pc-check "empty-finally" [q <== :empty?] t)
+
+(format t "~&PC-END~%")
+:q

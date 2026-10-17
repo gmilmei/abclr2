@@ -1,0 +1,41 @@
+;;; Individual reflection: inspect and modify the counter's environment.
+[object observed-counter
+ (state [n := 0])
+ (script
+  (=> :inc [n := (+ n 1)] !n)
+  (=> :get !n))]
+
+;;; Group reflection: select one compiled branch, not both.
+[group choice-group
+ (evaluator
+  [object
+   (state [primary := (r2sys::create-primary-eval group)])
+   (script
+    (=> [:choose [predicate then else] Env Id Gid Eval] @ C
+        [Eval <= [:do predicate Env Id Gid Eval]
+              @ [cont result
+                 [Eval <= [:do (if result then else)
+                           Env Id Gid Eval] @ C]]])
+    (=> [:unless [predicate body] Env Id Gid Eval] @ C
+        [Eval <= [:do predicate Env Id Gid Eval]
+              @ [cont result
+                 (if result
+                   [C <= nil]
+                   [Eval <= [:do body Env Id Gid Eval] @ C])]])
+    (=> any @ R
+        [primary <= any @ R]))])]
+
+[object choice-test
+ (group choice-group)
+ (state [selected := nil])
+ (script
+  (=> [:choose n]
+      !(reify-args :choose
+         (evenp n)
+         (progn [selected := :even] (/ n 2))
+         (progn [selected := :odd] (- n 1))))
+  (=> [:unless n]
+      !(reify-args :unless
+         (evenp n)
+         (progn [selected := :unless] n)))
+  (=> :selected !selected))]

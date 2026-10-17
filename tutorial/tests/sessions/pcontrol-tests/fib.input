@@ -1,0 +1,15 @@
+
+(defun pc-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&PC-PASS ~A~%" name)
+      (error "PC-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "start" :use-source t)
+(inc "fib" :use-source t)
+(pc-check "priority-four" [test-pc <== [:start 4]] t)
+(pc-check "fifo-four" [test-np <== [:start 4]] t)
+(pc-check "priority-six" [test-pc <== [:start 6]] t)
+(pc-check "fifo-six" [test-np <== [:start 6]] t)
+
+(format t "~&PC-END~%")
+:q

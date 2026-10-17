@@ -1,0 +1,176 @@
+\subsection{Inheritance Without a Superclass Declaration}
+\label{sec:original-inherit}
+
+The control-form projects changed which expressions run. The original
+\filepath{examples/misc/inherit.abclr2} now uses the same reflective
+access to choose behavior from another object.
+Familiar OOP gives us the question: can an emu reuse a bird's
+behavior while overriding its flight behavior?
+ABCL/R2's answer here is an explicit \emph{script-acquisition protocol},
+not a class declaration or a built-in superclass search.
+
+\subsubsection{Start with the Application, Not the Generator}
+
+Load the original file in a fresh session:
+\begin{lstlisting}
+(inc "examples/misc/inherit" :use-source t)
+\end{lstlisting}
+The file defines a macro, a generator, and a group. Loading it does not
+create bird or emu; enter their definitions from its closing comment:
+\begin{codeblock}
+\begin{lstlisting}
+[object bird
+ (script
+  (=> :has-feather? !t)
+  (=> :can-fly? !t))
+ (group inherit-group)]
+
+[object emu
+ (script
+  (=> :can-fly? !nil)
+  (=> Any @ Reply from Sender
+      (inherit Any Reply Sender bird)))
+ (group inherit-group)]
+\end{lstlisting}
+\end{codeblock}
+
+Both objects belong to \code{inherit-group}, which arranges for the
+custom metaobject generator to be used.
+The bird answers two questions locally. The emu answers the flight
+question locally and forwards every other request through \code{inherit}.
+The source's sample results are:
+\begin{lstlisting}
+[bird <== :can-fly?]           ; => T
+[emu <== :can-fly?]            ; => NIL
+[emu <== :has-feather?]        ; => T
+\end{lstlisting}
+\code{nil} in the second result is a reply containing false, not a
+missing reply. The local emu handler sends it explicitly.
+
+Check the identities separately from those application results:
+\begin{lstlisting}
+(eq [den [meta emu]] emu)             ; => T
+(eq [meta emu] emu)                   ; => NIL
+\end{lstlisting}
+Emu's metaobject is another object, and its denotation leads back to emu.
+Neither operation is a superclass lookup. These identity checks and
+the three application replies pass on the current image.
+Here \code{[group-of emu]} returns \code{inherit-group}. The generator
+exposes its creation argument as \code{Group} for identity creation,
+retaining \code{Group-manager} for execution. MCP, Meta-Meta, Fault-Tolerant,
+and the Time-Warp application generator use the same convention.
+This is application ownership, not the group of its metaobject or inherited method source.
+
+For non-reifying metaobjects, the generator assigns its known creation
+group to the denoted identity before initialization. The host expression
+\code{(setf (r2sys::object-data-gid [den Metaobject]) GMgr)} writes that
+identity's group slot; it does not inspect or expose the NRM state.
+
+For the feather request, \code{Any} becomes \code{:has-feather?}.
+\code{Reply} holds the caller's reply destination and \code{Sender}
+holds the request's sender. These are context fields, not extra elements
+inside the keyword message.
+The fallback asks for bird's matching script with that context.
+It does not first send the ordinary question \code{:has-feather?}
+to bird and then copy bird's answer.
+
+\subsubsection{The Reflective Boundary}
+
+The macro from the Lisp reading guide expands the fallback call into:
+\begin{lstlisting}
+(reify-args-to-meta :inherit Any Reply Sender bird)
+\end{lstlisting}
+\code{reify-args-to-meta} sends compiled representations of these four
+argument expressions, with their evaluation context, to emu's metaobject.
+That is the object controlling emu's script execution.
+The keyword \code{:inherit} selects a handler added by the custom generator.
+The representations are not yet the four application values.
+
+Read the core original handler now:
+\wholelisting[linerange={33-35,38-48}]{examples/misc/inherit.abclr2}
+
+The handler proceeds in three stages:
+\begin{enumerate}
+  \item \code{:do-evlis} asks the evaluator to evaluate the argument
+        representations in their original environment. Its continuation
+        receives the list \code{[message reply sender inherit-source]}.
+  \item It asks the source's metaobject to find a script matching that
+        message, reply destination, and sender. A successful reply contains
+        pattern bindings and an executable script representation.
+  \item It extends the current environment with those bindings and asks
+        the evaluator to execute the acquired script in the current
+        execution context, forwarding the meta-level continuation \code{C}.
+\end{enumerate}
+\code{Env} supplies the current bindings; \code{Id} identifies the
+execution context used for \code{Me}; \code{Gid} supplies its group context;
+\code{Eval} names the evaluator.
+The acquired feather script sends \code{t} to the application's
+\code{Reply}, answering the feather question. Separately, \code{C}
+tells the reflective computation that the acquired expression has finished.
+If no script is found, the failure branch warns and completes through
+\code{C} with \code{nil}. It does not thereby send an application failure
+reply to \code{Reply}.
+
+\subsubsection{Reconstruct the Metaobject's Ordinary Dispatch}
+
+Return to the generator's state and its normal-message handlers:
+\wholelisting[firstline=23,lastline=30]{examples/misc/inherit.abclr2}
+
+The application's initializers are described by \code{StateSpec}.
+\code{LexEnv} names its outer lexical environment and \code{Scripts}
+its script list. The group's execution components are \code{Eval}
+and \code{GMgr}. The dotted \code{Extra} collects additional parameters.
+The generated metaobject has its \emph{own} state: application queue,
+application environment, scripts, evaluator, group manager, and mode.
+The variable \code{state} is initially \code{nil}; it is filled by the
+initialization code, not assumed to be the application's data already.
+
+Read lines 49--71 of the original file with this state machine in mind:
+\begin{enumerate}[nosep]
+  \item \code{[:message Message Reply Sender]} queues one request.
+        A dormant metaobject marks itself active and schedules \code{:begin}.
+  \item \code{:begin} dequeues the request and finds its first matching
+        script. The evaluator executes it in an environment containing
+        the pattern bindings over the application's state.
+  \item The execution continuation sends \code{:end} to the metaobject.
+        That handler starts another queued request, or becomes dormant.
+\end{enumerate}
+\code{Me} in these metaobject handlers denotes the metaobject itself.
+\code{[den Me]} obtains the application object it describes.
+The custom \code{:inherit} handler is added to this machinery; it does
+not replace the ordinary application inbox by a superclass hierarchy.
+
+\subsubsection{Initialization and Reflective Queries}
+
+Lines 73--92 expose lookup and update operations such as \code{:state},
+\code{:scripts}, \code{:find-script}, and \code{:set-evaluator}.
+In particular, the three-field \code{:find-script} query preserves sender
+and reply information; the one-field query uses \code{nil} for those fields.
+That difference matters for patterns that depend on the sender.
+
+Finally, lines 95--104 evaluate state initializers with \code{:do-evlis}.
+\code{stateSpec-varNames} supplies names and \code{pairlis} associates
+them with the resulting values. \code{env-gen} creates an environment
+with those bindings and the lexical parent \code{LexEnv}.
+The generator sets that environment on the new metaobject and replies
+with the metaobject to its creation caller.
+Read initialization last, once you know what its state must support.
+
+\paragraph{Understanding check, with answers.}
+Why does emu's \code{:can-fly?} not consult bird?
+Its specific local pattern is first and matches, so the catch-all never runs.
+Would moving the catch-all first preserve that override? No.
+Does the example copy bird's state or permanently attach bird's scripts
+to emu? No: it finds a script for each inherited request and executes it
+using the current environment and context. It is not a guarantee of the
+field or superclass semantics of another OOP language.
+Why is \code{from Sender} retained? Acquired script matching may depend
+on who sent the original request, not just its payload.
+
+\paragraph{Reading milestone.}
+You should now be able to locate the application reply, the expression
+completion, the queue transition, and the creation reply independently
+in this file. The original baseline checks the three bird/emu queries
+without changing any original expression.
+That success does not certify arbitrary scripts, runtime script
+mutation, or every use of the generator.

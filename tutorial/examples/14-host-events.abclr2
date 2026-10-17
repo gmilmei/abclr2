@@ -1,0 +1,17 @@
+;; Synthetic events only: this file installs no OS callbacks or handler.
+[object event-inbox
+ (state [events := nil])
+ (script
+  (=> [:signal . parameters] @ R from S
+      [events := (cons (list parameters R S) events)])
+  (=> :events !(reverse events))
+  (=> :clear [events := nil] !:cleared))]
+
+;; These are host Lisp functions, not ABCL environment assignments.
+(defun demo-event-slot () r2sys:*signal-request*)
+(defun demo-post-event (value)
+ (setf r2sys:*signal-request* value))
+(defun demo-replace-event (first second)
+ ;; No ABCL scheduler step occurs between these two host assignments.
+ (setf r2sys:*signal-request* first)
+ (setf r2sys:*signal-request* second))

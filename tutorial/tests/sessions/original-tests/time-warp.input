@@ -1,0 +1,9 @@
+(defun original-check (name actual expected)
+ (if (equal actual expected)
+   (format t "~&ORIGINAL-PASS ~A~%" name)
+   (error "ORIGINAL-FAIL ~A: got ~S expected ~S" name actual expected)))
+[*library-directories* := (list "@ROOT@/build/original-tests/lib/")]
+(inc "tw-load" :use-source t)
+[starter <== [:start [3 4 6] 3]]
+(format t "~&ORIGINAL-END time-warp~%")
+:q

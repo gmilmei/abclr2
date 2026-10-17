@@ -1,0 +1,10 @@
+(defun original-check (name actual expected)
+ (if (equal actual expected)
+   (format t "~&ORIGINAL-PASS ~A~%" name)
+   (error "ORIGINAL-FAIL ~A: got ~S expected ~S" name actual expected)))
+[*library-directories* := (list "@ROOT@/build/original-tests/lib/")]
+(inc "@ROOT@/build/original-tests/reify-first" :use-source t)
+(original-check "my-if-excerpt" [my-if-test <== [:my-if 3]] 2)
+(original-check "ef-excerpt" [my-if-test <== [:ef 3]] 2)
+(format t "~&ORIGINAL-END reify-first-excerpt~%")
+:q

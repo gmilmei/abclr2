@@ -1,0 +1,10 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc "@ROOT@/build/group-tests/examples/misc/fault-tolerant" :use-source t)
+(group-check-point :ft-server server [group-of FT-meta-gen])
+(group-check-point :ft-client client [group-of FT-meta-gen])
+[client <= [:initialize]]
+[client <= [:start server]]
+(group-check "ft-recovery-retained" [[[meta server] <== :state] <== [:value-of 'amount]] 10)
+(format t "~&GROUP-END~%")
+:q

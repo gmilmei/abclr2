@@ -1,0 +1,33 @@
+(defun event-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&EVENT-PASS ~A~%" name)
+  (error "EVENT-FAIL ~A got ~S expected ~S" name actual expected)))
+[saved-handler := *signal-handler*]
+(inc "@ROOT@/build/host-event-tests/14-host-events" :use-source t)
+(event-check "initial-slot-empty" (demo-event-slot) nil)
+[*signal-handler* := event-inbox]
+(demo-post-event :tick)
+(event-check "slot-event" [event-inbox <== :events] '(((:tick) nil nil)))
+(event-check "slot-cleared" (demo-event-slot) nil)
+[event-inbox <== :clear]
+(demo-post-event '(:tick 7))
+(event-check "slot-list-is-one-value" [event-inbox <== :events] '((((:tick 7)) nil nil)))
+[event-inbox <== :clear]
+(demo-replace-event :first :second)
+(event-check "last-write-wins" [event-inbox <== :events] '(((:second) nil nil)))
+(event-check "replacement-cleared" (demo-event-slot) nil)
+[event-inbox <== :clear]
+(demo-post-event nil)
+(event-check "nil-is-no-pending-request" [event-inbox <== :events] nil)
+[*signal-handler* := nil]
+(demo-post-event :dropped-slot)
+(event-check "disabled-slot-still-cleared" (demo-event-slot) nil)
+[*signal-handler* := event-inbox]
+(event-check "disabled-slot-not-replayed" [event-inbox <== :events] nil)
+(demo-post-event :after-enable)
+(event-check "slot-enabled-again" [event-inbox <== :events] '(((:after-enable) nil nil)))
+[*signal-handler* := saved-handler]
+(event-check "restored-handler" *signal-handler* saved-handler)
+(event-check "no-pending-request-left" (demo-event-slot) nil)
+(format t "~&EVENT-END~%")
+:q

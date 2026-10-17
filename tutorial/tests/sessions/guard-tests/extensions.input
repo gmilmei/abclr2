@@ -1,0 +1,28 @@
+
+(defun guard-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&GUARD-PASS ~A~%" name)
+  (error "GUARD-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/guard-tests/lib/heavy-meta" :use-source t)
+(inc "@ROOT@/build/guard-tests/original-counter" :use-source t)
+
+(inc "@ROOT@/build/guard-tests/09-guards" :use-source t)
+(guard-check "below-limit" [guarded-choice <== [:choose 5]] :rejected)
+(guard-check "above-limit" [guarded-choice <== [:choose 11]] :accepted)
+(guard-check "wrong-type" [guarded-choice <== [:choose 'wrong]] :rejected)
+(guard-check "failed-guard-effects-persist" [guarded-choice <== :checks] 3)
+(guard-check "sender-and-reply-bound" [guard-driver <== :self] t)
+(guard-check "sender-mismatch" [guard-driver <== :other] nil)
+(guard-check "explicit-group-positive" [grouped-choice <== [:choose 1]] :positive)
+(guard-check "explicit-group-fallback" [grouped-choice <== [:choose -1]] :rejected)
+[object unconfigured-group-choice
+ (group guarded-group)
+ (script (=> n where nil !:unchecked) (=> _ !:fallback))]
+(guard-check "explicit-group-needs-heavy-meta" [unconfigured-group-choice <== 1] :unchecked)
+[object non-reifying-choice
+ (meta-gen non-reifying-meta)
+ (script (=> n where nil !:unchecked) (=> _ !:fallback))]
+(guard-check "non-reifying-guard-ignored" [non-reifying-choice <== 1] :unchecked)
+
+(format t "~&GUARD-END~%")
+:q

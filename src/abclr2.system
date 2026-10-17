@@ -1,0 +1,88 @@
+;;;-*- Mode: Lisp; Package: COMMON-LISP-USER -*-
+;;; new-abclr2.system
+;;; new system definition for ABCL/R2
+;;;
+;;; Create: Jul 5, 1992, by MASUHARA, H.
+
+(defsystem ABCLR2
+  :source-pathname *R2SYS-SOURCE-PATHNAME*
+  :source-extension "lsp"
+  :binary-pathname *R2SYS-BINARY-PATHNAME*
+  :components
+  ((:module primitives
+            :source-pathname "./"
+            :binary-pathname "./"
+            :components
+            ((:file "declare")
+             (:file "user" :load-only #+:CCL-2 t #-:CCL-2 nil)   ; MCL bug?
+             (:file "address" :depends-on ("lock"))
+             #+KCLM (:file "init-kcl")
+             #-KCLM (:file "semaphore-emu")
+             #+KCLM (:file "semaphore-kclm")
+             (:file "lock")
+             (:file "catch-error")
+             ;; (:file "backquote")
+             (:file "readtable")
+	     (:file "signal")))
+   (:module kernel
+            :source-pathname "./"
+            :binary-pathname "./"
+            :components
+            ((:file "match")
+             (:file "match-bind")
+             (:file "common-object")
+             (:file "low-queue")
+             (:file "low-message" :depends-on ("process"))
+             (:file "continuation")
+             (:file "process" :depends-on (#+KCLM "threads"))
+             #+KCLM (:file "threads")
+             (:file "present-message" :depends-on ("low-message"))
+             (:file "script")
+             (:file "light-weight-meta" :depends-on ("tower"))
+             (:file "reifying-point" :depends-on ("tower"))
+             (:file "tower" :depends-on ()))
+            :depends-on (primitives))
+   (:module primaries-low
+            :source-pathname "./"
+            :binary-pathname "./"
+            :components 
+            ((:file "primary-env"))
+            :depends-on (kernel))
+   (:module primaries
+            :source-pathname "./"
+            :binary-pathname "./"
+            :components
+            ((:file "primary-queue")
+             (:file "primary-meta")
+             (:file "primary-meta-gen")
+             (:file "primary-eval")
+             (:file "primary-group")
+             (:file "non-reifying-meta"))
+            :depends-on (primitives kernel default-script))
+   (:module default-script
+            :source-pathname "./"
+            :binary-pathname "./"
+            :components
+            ((:file "script-meta")
+             (:file "script-meta-gen")
+             (:file "script-eval")
+             (:file "script-group"))
+            :depends-on (kernel primaries-low))
+   (:module compiler
+            :source-pathname "./"
+            :binary-pathname "./"
+            :components
+            ((:file "parse")
+             (:file "translate" :depends-on ("parse"))
+             (:file "translate-nrm" :depends-on ("parse")))
+            :depends-on (kernel))
+   (:module toplevel
+            :source-pathname "./"
+            :binary-pathname "./"
+            :components
+            ((:file "topfunc")
+             (:file "inc" :depends-on ("topfunc"))
+             (:file "timer")
+	     (:file "signal-handler")
+             (:file "toplevel"
+		    :depends-on ("topfunc" "inc" "timer" "signal-handler"))))))

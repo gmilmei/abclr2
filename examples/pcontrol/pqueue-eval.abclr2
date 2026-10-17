@@ -1,0 +1,136 @@
+;;; -*- Mode:abcl1; -*-
+;;; multiple evaluator with priority queue
+;;;
+
+[object pqueue-gen
+  (script
+   (=> (bracket* :new predicate keys)
+       ![object pqueue
+	  (meta-gen non-reifying-meta)
+	  (state [item-list := nil])
+	  (script
+	   (=> [:enq item]
+	       [item-list := (cons item item-list)]
+	       [item-list := (apply #'sort item-list predicate keys)])
+	   (=> :deq
+	       !(first item-list)
+	       [item-list := (rest item-list)])
+	   (=> :empty? !(null item-list)))]))]
+
+[object PQ-meta-gen
+  (script
+   (=> [:new StateSpec LexEnv Scripts Eval GMgr] @ R
+       [object Metaobject
+	 (meta-gen non-reifying-meta)
+	 (state [pqueue := nil]
+		[priority-alist := nil]
+		[state := nil]
+		[scriptSet := scripts]
+		[evaluator := Eval]
+		[Group-manager := GMgr]
+		[mode := ':dormant])
+	 (script
+	  (=> [:message [Tag Exp Env Id Gid Eval Priority]
+			Reply Sender]
+	      [pqueue <= [:enq [Priority
+				[[Tag Exp Env Id Gid Eval]
+				 Reply Sender]]]]
+	      (pushnew (cons Id Priority) Priority-alist
+		       :test #'equal)
+	      (when (eq mode ':dormant)
+		[mode := ':active]
+		[Me <= :begin]))
+	  (=> [:message [Tag Exp Env Id Gid Eval] Reply Sender]
+	      (temporary
+	       [Priority := (cdr (assoc Id priority-alist))])
+	      (if (null Priority) [Priority := 0])
+	      [pqueue <= [:enq [Priority
+				[[Tag Exp Env Id Gid Eval]
+				 Reply Sender]]]]
+	      (when (eq mode ':dormant)
+		[mode := ':active]
+		[Me <= :begin]))
+	  (=> :begin
+	      (match [pqueue <== :deq]
+		(is [_ [Message Reply Sender]]
+		    (match (find-script Message Reply Sender scriptSet)
+		      (is [Bindings ScriptBody]
+			  [evaluator 
+			   <= [:do
+				  ScriptBody
+				[env-gen <== [:new Bindings state]]
+				Me Group-manager evaluator]
+			   @ [cont _
+				   [Me <= :end]]])
+		      (otherwise
+		       (warn "~S cannot handle the message ~S"
+			     [den Me] Message))))))
+	  (=> :end
+	      (if (not [pqueue <== :empty?])
+		  [Me <= :begin]
+		  [mode := ':dormant]))
+	  (=> [:set-state s]
+	      ;;[pqueue := [pqueue-gen <== [:new #'< :key #'first]]]
+	      [pqueue := [queue-gen <==  :new]]
+	      [state := s])
+	  (=> [:set-queue q]
+	      [pqueue := q])
+	  )]
+;; PORT-BEGIN: Set the known owner before initialization; NRM state remains opaque.
+;; PORT-ACTIVE
+       (setf (r2sys::object-data-gid [den Metaobject]) GMgr)
+;; PORT-END
+       [Eval
+	<= [:do-evlis (stateSpec-initforms StateSpec)
+		  LexEnv Metaobject GMgr Eval]
+	@ [cont initValues
+	     [Metaobject
+	      <= [:set-state [env-gen 
+			      <== [:new (pairlis (stateSpec-varNames stateSpec)
+						 initValues)
+					LexEnv]]]]
+	     [R <= Metaobject]]]))]
+      
+[object multi-eval-gen
+  (state [el := nil]
+	 [num := nil]
+	 [reply := nil])
+  (script
+   (=> [:new eval-gen num-eval] @ R
+       [reply := R]
+       [num := num-eval]
+       [Me <= [:make-clients eval-gen num-eval]])
+   (=> [:make-clients eval-gen 0]
+       [Me <= :make-entry])
+   (=> [:make-clients eval-gen num-eval]
+       [el := (cons [eval-gen <== [:new Group]] el)]
+       [Me <= [:make-clients eval-gen (1- num-eval)]])
+   (=> :make-entry
+       [reply
+	<= [object multi-eval
+	     (meta-gen PQ-meta-gen)
+	     (state [num-eval := num]
+		    [eval-list := el]
+		    [current-eval := el])
+	     (script
+	      (=> [:do [:object-def Name Meta-gen GMgr State Script
+				    :priority priority]
+		       Env Id Gid Eval] @ C
+		  [p-monitor <= :tick]
+		  (let ((set-name 
+			 [cont object
+			       (if Name
+				   [Env <= [:set-local Name [den object]]
+					@ C]
+				   [C <= [den object]])]))
+		    [(or GMgr Gid) <= [:new State Env Script
+					    :priority priority]
+				   @ set-name]))
+		     
+	      (=> any @ C
+		  [p-monitor <= :tick]
+		  [(first current-eval) <= any @ C]
+		  [current-eval := (rest current-eval)]
+		  (if (null current-eval)
+		      [current-eval := eval-list])))]]))]
+

@@ -1,0 +1,23 @@
+(defun legacy-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&LEGACY-PASS ~A~%" name)
+  (error "LEGACY-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/heavy-old-tests/legacy/lib/heavy-meta-old" :use-source t)
+(inc "@ROOT@/build/heavy-old-tests/legacy/original-counter" :use-source t)
+(legacy-check "initial" [counter <== [:value]] 0)
+@HEAVY-ORIGINAL-SESSION@
+(legacy-check "observed-guard-ignored" [counter <== [:value]] 23)
+[counter <= [:add 7]]
+(legacy-check "positive-body" [counter <== [:value]] 30)
+[scripts := [[meta counter] <== :scripts]]
+(legacy-check "separate-guard-exists" (not (null [(first scripts) <== :where-exp])) t)
+(legacy-check "fallback-unguarded" [(second scripts) <== :where-exp] nil)
+(legacy-check "structural-lookup" [[meta counter] <== [:find-script [:add -1]]] (first scripts))
+(legacy-check "state" [[[meta counter] <== :state] <== [:value-of 'c]] 30)
+[counter <= :legacy-unknown]
+(legacy-check "unknown-removed" [[meta counter] <== :queue] nil)
+(legacy-check "continues-after-unknown" [counter <== [:value]] 30)
+[counter <= [:reset]]
+(legacy-check "reset" [counter <== [:value]] 0)
+(format t "~&LEGACY-END~%")
+:q

@@ -1,0 +1,16 @@
+
+(defun reflection-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&REFLECTION-PASS ~A~%" name)
+      (error "REFLECTION-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "@ROOT@/build/reflection-tests/MCP" :use-source t)
+[object mc-counter (group Meta-circular) (state [n := 0])
+ (script (=> :increment [n := (+ n 1)] !n) (=> :value !n))]
+(reflection-check "mcp-first" [mc-counter <== :increment] 1)
+(reflection-check "mcp-second" [mc-counter <== :increment] 2)
+(reflection-check "mcp-state" [mc-counter <== :value] 2)
+(reflection-check "mcp-evaluator" [[meta mc-counter] <== :evaluator] MC-eval)
+
+(format t "~&REFLECTION-END~%")
+:q

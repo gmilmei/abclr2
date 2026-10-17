@@ -1,0 +1,37 @@
+(defun report-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&REPORT-PASS ~A~%" name)
+  (error "REPORT-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/report-tests/13-report" :use-source t)
+; Observe the real default-reporter call and its output in this process only.
+(defvar *report-format-original* (symbol-function 'default-reporting-function))
+(defvar *report-format-last* nil)
+(defun report-format-observe ()
+ (setf (symbol-function 'default-reporting-function)
+  (lambda (object type message reply sender)
+   (let ((output (with-output-to-string (*standard-output*)
+                   (funcall *report-format-original* object type message reply sender))))
+    (setf *report-format-last* (list type message reply sender output))
+    (write-string output)))))
+(defun report-format-last () *report-format-last*)
+(defun report-format-restore ()
+ (setf (symbol-function 'default-reporting-function) *report-format-original*))
+(report-format-observe)
+[default-reporter <= [:report [meta report-original] :message [:message-probe :reply-marker :sender-marker]]]
+(report-check "message-arguments" (subseq (report-format-last) 0 4) '(:message :message-probe :reply-marker :sender-marker))
+(report-check "message-labels" (not (null (search ":MESSAGE-PROBE from :SENDER-MARKER (reply=:REPLY-MARKER)" (fifth (report-format-last))))) t)
+[default-reporter <= [:report [meta report-original] :begin [:begin-probe :reply-marker :sender-marker]]]
+(report-check "begin-arguments" (subseq (report-format-last) 0 4) '(:begin :begin-probe :reply-marker :sender-marker))
+(report-check "begin-labels" (not (null (search ":BEGIN-PROBE from :SENDER-MARKER (reply=:REPLY-MARKER)" (fifth (report-format-last))))) t)
+[default-reporter <= [:report [meta report-original] :end [:end-probe :reply-marker :sender-marker]]]
+(report-check "end-arguments" (subseq (report-format-last) 0 4) '(:end :end-probe :reply-marker :sender-marker))
+(report-check "end-labels" (not (null (search ":END-PROBE from :SENDER-MARKER (reply=:REPLY-MARKER)" (fifth (report-format-last))))) t)
+[default-reporter <= [:report [meta report-original] :message [:nil-reply-probe nil :sender-marker]]]
+(report-check "nil-reply-arguments" (subseq (report-format-last) 0 4) '(:message :nil-reply-probe nil :sender-marker))
+(report-check "nil-reply-labels" (not (null (search ":NIL-REPLY-PROBE from :SENDER-MARKER (reply=NIL)" (fifth (report-format-last))))) t)
+[default-reporter <= [:report [meta report-original] :message [:nil-sender-probe :reply-marker nil]]]
+(report-check "nil-sender-arguments" (subseq (report-format-last) 0 4) '(:message :nil-sender-probe :reply-marker nil))
+(report-check "nil-sender-labels" (not (null (search ":NIL-SENDER-PROBE from NIL (reply=:REPLY-MARKER)" (fifth (report-format-last))))) t)
+(report-format-restore)
+(format t "~&REPORT-END~%")
+:q

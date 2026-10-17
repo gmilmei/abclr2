@@ -1,0 +1,592 @@
+;;; -*- Mode: Outline -*-
+;;; ABCL/R2 User's Guide (In English)
+* Title
+			 ABCL/R2 User's Guide
+				   
+			  Hidehiko Masuhara
+      Department of Information Science, The University of Tokyo
+		    (masuhara@is.s.u-tokyo.ac.jp)
+
+Written:	August 6, 1992		Japanese/Kanji version
+Translated:	November 16, 1992
+Modified:	November 21, 1992	Express message is changed.
+Modified:	January 26, 1993	Toplevel commands.
+Modified:	June 14, 1993		Reify-args special forms.
+Added:		July 28, 1994		Lexical variables.
+Added:		July 28, 1994		Event handling.
+
+* Introduction
+
+	This guide describes features that are specific to ABCL/R2;
+i.e., new/modified features compared to ABCL/1 [2]. The reader is
+assumed to have read ``ABCL/1 User's Guide,'' which appears as an
+Appendix of [2].
+
+	ABCL/R2 is an object-oriented concurrent language with
+reflective facilities.	As an object-oriented concurrent language, it
+has most of features of ABCL/1 (the non-reflective predecessor of
+ABCL/R2).  Furthermore, it supports reflective computations based on
+Hybrid Group Architecture proposed in [1]. The semantic model of
+ABCL/R2 is described in [1].
+
+* Differences between ABCL/R2 and ABCL/1
+
+	The ABCL/R2 system is not completely compatible with the
+ABCL/1 system.	Some features of ABCL/1 are modified in ABCL/R2, and
+some are restricted or not available.  Below, such features are
+discussed.
+
+** Unsupported features
+
+	In this version of ABCL/R2, following features are not
+available.  (Some of them may become available in the future version,
+but some are not.)
+
+*** Wait-For, Wait-For-Loop forms
+
+	Wait-For and Wait-For-Loop are the forms to wait for specified
+messages, but they are not supported.
+
+*** Match-Loop form
+	Match-Loop is a form that repeats the Match form, but not
+supported.
+
+*** Synchronous Message Transmission form
+
+	Synchronous Message Transmission is a form to wait for replies
+for multiple messages.  For example, following expression sends the
+messages to motorX and motorY, then waits replies from motorX and
+motorY.
+
+	{[motorX <== [:step 30]] [motorY <== [:step 20]]}
+
+	Current version of ABCL/R2 does not support this form.
+
+*** Routine Call
+
+	Routine Call is a way to recursion or code sharing within an
+object.  Current version of ABCL/R2 system does not support this.
+
+*** Some Common Lisp special forms
+
+	In current version of ABCL/R2, following Common Lisp special
+forms are SUPPORTED.
+
+	DECLARE		FUNCTION	IF
+	LET		LET*		PROGN
+	QUOTE		SETQ
+
+Some special forms, which are supported in ABCL/1, do not appear in
+above list (e.g., TAGBODY/GO, BLOCK/RETURN, and multiple-value).  They
+are not available.  However, the DO form, which is a macro in Common
+Lisp, is supported as a special form in the ABCL/R2 system.
+
+	Current version of ABCL/R2 ignores the contents of the declare
+form.
+
+*** Suicide form
+
+	The suicide form, which terminates the execution of an object,
+is not supported.
+
+*** Constraints in Match form
+
+	In ABCL/R2, the match form cannot handle the constraints.  For
+example:
+	Good:
+	     (match x
+	       (is 0 !t)
+	       (is n !(1- n)))
+	NG:
+	     (match x
+	       (is n where (zerop n)
+		   !t)
+	       (is n
+		   !(1- n)))
+
+** Features with Restricted Functionality
+
+*** Express Mode Messages and Atomic form
+
+	To send messages in the `express mode,' the customized
+evaluator and metaobject generator should be used.  The library file
+`express.abclr2' provides the definitions for them.
+
+	Moreover, there are two restrictions. (1) An object that will
+send an express message (i.e., the sender) must use an evaluator
+`eval/express,' which can be created by an object `eval/express-gen.'
+(2) The metaobject of the receiver must be created by a metaobject
+generator `meta/express-gen.'
+
+	An express message is launched by one of the following
+expressions:
+	[<receiver> <= <message> :express]
+	[<receiver> <= <message> @ <reply-dest.> :express]
+	[<receiver> <== <message> :express]
+
+	An express message causes preemption of a script execution
+that is invoked by a normal message.  The ATOMIC form prevents the
+preemption during the execution of its subexpressions.  In these
+sense, this express facility is compatible to ABCL/1's except its
+syntax.
+
+	Examples of express messages can be found in file
+`examples/misc/express-ex.abclr2'.
+
+*** Lambda Form
+
+	Inside a lambda form embedded in a script, access to lexical
+variables is not allowed.  (So it creates an anonymous function rather
+than a lambda-closure...)  Also, a lambda form cannot have
+ABCL-specific forms such as the message transmission and object
+creation.
+
+NG:
+	[object foo
+	 (state [x := 0])
+	 (script
+	  (=> [:test l]
+	      !(member l :test #'(lambda (y) (= x y)))))]
+	;; The variable `x' cannot be accessed in the lambda form.
+
+Good:
+	[object foo
+	 (state [x := 0])
+	 (script
+	  (=> [:test l]
+	      !(member l :test
+		       (funcall #'(lambda (w)
+				    #'(lambda (y) (= w y))
+				    x)))))]
+	;; Nevertheless, the lexical variable `w' can be accessed
+	;; because it is bound in the lambda form.
+
+*** Where Clause
+
+	To define an object that has a `where clause' in its
+script-pattern, the user should load the library `heavy-meta' before
+the evaluation.  When a `where clause' is used in an object
+definition, the compiler sets the metaobject generator of the object
+to `heavy-meta'.
+
+	The pattern-match algorithm is like the following pseudo-code.
+Note that a message having no matching script is discarded, while it
+is kept in ABCL/1.
+
+    (let ((MRS <a triplet <Message, Reply, Sender> dequeued from the queue>)
+	  (matched? nil))
+      (dolist (script <a list of scripts>)
+	(if (and <Does the pattern of script match with MRS?>
+		 <Is the constraint satisfied?>)
+	  (progn <execute the body of script>
+		 (setq matched? t)
+		 <return-from dolist-loop>)))
+      (if (not matched?)
+	  <discard MRS>))
+
+** Features Given by the Library
+
+*** Multicast
+
+	To send multicast messages, an evaluator should be created by
+an object `multicast-eval-gen,' which is defined in the library
+`multicast.'
+
+	Tips: The following expression enables multicast message
+sending from the top-level.  This is because the top-level expression
+is evaluated by an object bound to the variable `*eval*.'
+	[*eval* := [multicast-eval-gen <== [:new *eval*]]]
+
+*** Future Type Message
+
+	The user should load the `future' library before the use of a
+future type message.
+
+** New Features and Modified Features
+
+*** Loading and Compiling Programs
+
+ (INC pathname &key (use-source nil) (verbose t) (compile nil))
+							   [special form]
+
+	A ABCL/R2 program specified by the argument `pathname' is
+translated into Lisp program, then loaded.  When the program is
+already translated into Lisp, and the value of keyword `use-source' is
+nil, translation is skipped.  When the value of the keyword `compile'
+is non-nil, the program is loaded after the translated Lisp program is
+compiled.
+
+	The environment and group where the program is evaluated are
+the same ones where the INC form is evaluated.
+
+	The argument `pathname' consists of the directory and the
+(file) name.  The type should not be included.  For example, a file
+"/foo/bar/baz.abclr2" is loaded by an expression:
+	(inc "/foo/bar/baz")
+
+ (COMP pathname &key (use-source nil) (verbose t))	       [macro]
+
+	A ABCL/R2 program is translated into a Lisp program, then
+compiled into a fasl file.  When the program is already translated or
+compiled, these phases are skipped.  When the value of the keyword
+use-source is non-nil, existence of translated program is ignored.
+
+	File types are given in following manner:
+	ABCL/R2 file:	"abclr2"
+	Lisp file:	"lsp"
+	Fasl file:	(depends on underlying Lisp system)
+
+*** Loading Library
+
+ (INC-LIB pathname &key (use-source nil) (verbose t) (compile nil))
+								[special form]
+
+	An ABCL/R2 program is loaded.  The environment and the group,
+where the program is evaluated, are the top-level ones.
+
+ (REQUIRE module-name &key (use-source nil) (verbose t) (compile nil))
+								[macro]
+
+	An ABCL/R2 program specified by the argument module-name is
+loaded by INC-LIB when the value of module-name is not found in the
+variable *modules*.  The program is searched in directories given by
+the variable *library-directories*.
+	When the module-name appears in *modules*, it loads nothing.
+
+ (PROVIDE module-name)						[macro]
+
+	The module-name is added into the variable *modules*.
+
+Note: the value of the argument module-name can be either symbol or
+string.
+
+ *MODULES*							[variable]
+
+	List of module names loaded.
+
+ *LIBRARY-DIRECTORIES*						[variable]
+
+	List of directory names.  Macro REQUIRE uses this variable to
+search a library program given by name.
+
+*** Current Directory
+
+ (CD &optional pathname)					[function]
+
+	The current directory is moved to a directory specified by the
+argument `pathname.'  If the argument is not specified, the home
+directory is selected.
+
+ (PWD)								[function]
+
+	The current directory is returned.
+
+*** Continuation Object
+
+	The ABCL/R2 system provides a special form to create an object
+used as a continuation.	 We call such an object a continuation object.
+A continuation object is created by the following form:
+
+	[cont <pattern> <body>]
+
+	The evaluation of this form creates a continuation object that
+has same behavior to the one created by the form
+	[object (script (=> <pattern> <body>))].
+The only difference is that the former is much more efficiently
+executed than the latter.
+
+Note: The <body> part of a continuation object should not have
+expressions whose execution time can not be predicted (e.g., loops or
+now-type messages).  If it has, there may be a dead-lock.  The <body>
+part can not be the subject of reflective computation, since it is
+compiled as a script of a non-reifying object.
+
+*** Toplevel
+
+Most of toplevel commands of ABCL/1 (e.g., inspect) are not supported
+in ABCL/R2 for some reasons.  Some commands (e.g., pwd, cd, inc, and
+comp) are provided as functions/macros; some (e.g., trace-objects and
+history) can be substituted by the reflective libraries; and some
+(e.g., inspect) are not impremented yet.
+
+Following two commands are the only ones provided as a toplevel
+command in ABCL/R2:
+	:q	quits the system.
+	:reset	restarts the system.
+
+The error handler of ABCL/R2 has many corner cuttings.  In the current
+version, when an error is occured, the error message at Lisp-level is
+displayed(*).  Thereafter, the system continues its execution as long
+as possible.  In most cases, the system may complain because there is
+no reply message for a present-type message.  Some system may invoke
+the debugger at Lisp-level at the point of (*).  In this cane, the
+exit from the debugger continues the execution of the system.
+
+*** Lexical Variables
+
+	Lexical variables for an object are the variables that are
+defined at an outer environment of the object.  In ABCL/1, the values
+of lexical variables are COPIED at the object-creation time.  After an
+object is created, in the other words, any modification on a lexical
+variable by the created object does not propagate to the original
+variable, and vice versa.  In ABCL/R2, on the other hand, lexical
+variables are SHARED among objects.  
+
+	To contrast this difference, let us look the following
+program.  In ABCL/1, the modification of n by the execution of "[n :=
+(+ n 1)]" is NOT propagated to objects foo and baz.  In ABCL/R2, since
+the variable n is SHARED, the result depends on the order of
+execution.
+
+	[object foo
+	 (script
+	  (=> [:test n]
+	    (let ((bar [object (script (=> [:inc] [n := (+ n 1)]))])
+		  (baz [object (script (=> [:get] !n))]))
+	      [bar <= [:inc]]
+	      !(list n [baz <== [:get]]))))]
+	[foo <== [:test 10]]
+
+	==> (10 10) ; in ABCL/1
+	==> Either (10 10), (10 11), (11 10) or (11 11) ; in ABCL/R2
+
+Authors are planning to change this feature to be COPY semantics in
+future.
+
+*** Event Handling
+
+	Asynchronous events (SIGNALs in the Unix's terminology), such
+as timer or I/O request, can be received by an object in ABCL/R2.
+Here, we describe the interface for the event handling mechanism,
+which consists of two layers: (1) event generation at Lisp level, and
+(2) event receiving at ABCL level.
+
+(1) Lisp Level:
+
+When an event is occurred, the event handler at the Lisp level calls a
+LISP function R2SYS:SEND-SIGNAL with some arguments.  Eventually, the
+event is delivered to an ABCL object as a message.  (Alternatively, the
+variable R2SYS:*SIGNAL-REQUEST* is changed to be a non-nil value, a
+message is sent to an ABCL object.  This interface is for systems that
+cannot call LISP functions at the event handlers.)
+
+(2) ABCL Level:
+
+Once an event is notified to the ABCL system at the Lisp level, it is
+notified to an ABCL object by a message.  An event handler object,
+which is the one bound to the global variable *SIGNAL-HANDLER*, is the
+receiver.  Received messages have a form like this: [:signal
+<arguments> ...], whose arguments are the ones for function
+R2SYS:SEND-SIGNAL.  Note that kind of events is only identified by the
+arguments of the message.
+
+By default, a signal handler, which ignores  any kinds of events are
+defined.  When the value of variable *SIGNAL-HANDLER* is NIL, no
+messages are sent.
+
+* Reflective Computation in ABCL/R2
+
+Though reflective computations in ABCL/R2 are based on the Hybrid
+Group Architecture proposed in [1], some features are
+extended/modified.  These features are described below.
+
+** Compiler
+
+	In current version of ABCL/R2, the script of the object is
+partially compiled as is shown in [3].  As a result, the definition of
+the default evaluator differs from the one presented in [1].  The user
+should note following points:
+
+  (a) The evaluator can receive a message like [:do Exp Env Id Gid
+	Eval].  In such a message, Exp is a partially compiled
+	expression and its form is [<tag> <body>].
+  (b) The body part of an expression [:compiled <body>] is a Lisp
+	lambda-closure whose arguments are continuation, environment,
+	object ID, and evaluator. 
+  (c) Parameters in the evaluator expression are already evaluated.  An
+	ABCL/R2 expression `[x <= y @ z]' is evaluated at the
+	meta-level by the message 
+	   [:do [:send-past Target Message Reply] Env Id Gid Eval]
+	to the evaluator.  Here, parameters Target, Message, and Reply
+	have the run-time values of x, y, and z.
+ 
+
+** Built-in Objects
+
+*** Kernel Objects
+
+	Usually, the system automatically creates the group kernel
+objects (the metaobject generator, the evaluator, and the group
+manager).  In file `examples/misc/MCP.abclr2,' there are definitions
+of `MC-meta-gen,' `MC-eval,' and `Meta-circular.'  They correspond to
+the definitions for the automatically-created group kernel objects.
+
+*** Script Object
+
+	A compiled script can be accessed as an object from the user
+program.  The messages that the script object can receive are
+described in file `examples/misc/built-ins.abclr2.'
+
+	Furthermore, the user can define the customized script
+objects. Files `examples/misc/user/script.abclr2' and
+`lib/heavy-meta.abclr2' are the examples.
+
+*** Global Objects
+
+	At the startup time, following objects are already defined as
+global objects.	 Their behaviors are described in file
+`examples/misc/built-ins.abclr2.'
+	`env-gen'	generates environment objects.
+	`queue-gen'	generates queue objects.
+	`global-env'	is the global environment object.
+
+** Additional Parameters
+
+	As is mentioned before, the current version of ABCL/R2 system
+partially compiles the scripts of the user-defined objects.  To
+customize the behavior of expressions, the compiler accepts additional
+parameters for some forms.
+
+	For example, the evaluation of an expression `[x <= y @ z]'
+--- past-type message --- yields a message
+	[:send-past Target Message Reply] 
+to the evaluator at the meta-level where the values of Target,
+Message, and Reply are the run-time values of x, y, and z.  Here, the
+evaluation of an expression `[x <= y @ z :RVT s]' which has additional
+parameters (:RVT and s) yields a message
+	[:send-past Target Message Reply :RVT s*]
+to the evaluator. (The value of s* is the run-time value of s.)  Even
+in some library modules, these additional parameters are used (e.g.,
+express message).
+
+	Current version of ABCL/R2 system accepts such additional
+parameters only in (1) the message transmission, (2) the object
+definition, and (3) the assignment.
+
+*** Message Transmission
+
+Following expressions:
+
+	[E1 <= E2 @ E3 A1 ... An]
+	[E1 <== E2 A1 ... An]
+
+yield messages to the evaluator:
+
+	[:send-past E1* E2* E3* A1* ... An*]
+	[:send-now E1* E2* A1* ... An*]
+
+where Ei*, Ai* are the run-time values of Ei, Ai.
+
+*** Object Creation
+
+Following object creation form:
+
+	[object Name
+	 (meta-gen MGen)
+	 (group GMgr)
+	 (Tag1 Exp1)
+	 (Tag2 Exp2)
+	      :
+	 (TagN ExpN)
+	 (state [var := initValue])
+	 (script ...)]
+
+yields a message to the evaluator:
+
+	[:object-def 'Name MGen* GMgr* StateSpec* ScriptSet* 
+			:Tag1 Arg1 :Tag2 Arg2 ... TagN ArgN]
+
+
+where MGen*, GMgr*, and Argi are the run-time values of MGen, GMgr,
+and Expi; and StateSpec* and ScriptSet* are the compiled values of the
+state and script parts of the expression.
+
+Example:
+
+An expression:
+
+	[object foo
+	  (priority N)
+	  (script ...)]
+
+yields a message to the evaluator
+
+	[:object-def 'foo nil nil nil <list of Scripts> :priority 10]
+
+where the run-time value of N is 10.
+
+*** Assignment
+
+Following assignment form:
+
+	[Var := Exp A1 ... An]
+
+yields a message to the environment object:
+
+	[:set 'Var Exp1* A1* ... An*]
+
+where Exp1* and Ai* are the run-time values of Exp and Ai.
+
+** Special form REIFY-ARGS
+
+In some reflective languages, such as 3-Lisp and ABCL/R, so called
+reifying procedure is available.  In ABCL/R2, however, such a
+procedure cannot be realized. This is because that the semantics of
+the reifying procedures requires the user program to be interpreted,
+and this requirement conflicts with our partial compilation scheme.
+
+Though the all functionality of the reifying procedure cannot be
+supplied, but special form REIFY-ARGS supplies some of them.
+
+ (reify-args         KEYWORD EXP1 ... EXPN)
+ (reify-args-to-meta KEYWORD EXP1 ... EXPN)		[Special Form]
+
+When this special form is executed, KEYWORD is evaluated at first.
+Hereafter, a message:
+
+	[KEYWORD* EXPS ENV ID GID EVAL] @ C
+
+is sent to an evaluator (in case of reify-args) or the metaobject of an
+object whose script is being executed (in case of reify-args-to-meta).
+Where KEYWORD* is the evaluated value of KEYWORD, EXPS is a list of
+compiled objects of EXP1 to EXPN, and other parameters are context for
+the evaluation of this form.
+
+When this special form is appeared in the script of an non-reifying
+object, it will cause a compile-time error.
+
+The reader can see how to use this special form in file
+reify-args.abclr2 at directory examples/misc.
+
+* References
+
+[1] 
+@InProceedings{matsuoka91,
+  author = 	"Satoshi Matsuoka and Takuo Watanabe and Akinori
+		 Yonezawa",
+  title = 	"Hybrid Group Reflective Architecture for
+		 Object-Oriented Concurrent Reflective Programming",
+  booktitle =	"European Conference on Object-Oriented Programming
+		 (ECOOP)",
+  year =	"1991",
+}
+
+[2] 
+@Book{yonezawa90,
+  editor =	"Akinori Yonezawa",
+  title =	"ABCL: An Object-Oriented Concurrent System",
+  publisher =	"MIT Press",
+  year =	"1990",
+  address =	"Cambridge, Massachusetts",
+}
+
+
+[3]
+@InProccedings{masuhara92,
+  author =	"Hidehiko Masuhara and Satoshi Matsuoka and Takuo
+		 Watanabe and Akinori Yonezawa",
+  title =	"Object-Oriented Concurrent Reflective Languages can
+		 be Implemented Efficiently",
+  booktitle =	"Proceedings of OOPSLA'92",
+  year =	"1992",
+}

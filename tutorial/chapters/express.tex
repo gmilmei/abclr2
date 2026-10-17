@@ -1,0 +1,49 @@
+\subsection{An Express Exchange}
+
+An express send needs both ends configured: the sender uses an express
+evaluator, and the receiver uses an express metaobject generator.
+Begin with the original clock while it is idle. In a fresh session at
+the repository root, load its library and definitions:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc-lib "lib/express" :use-source t)
+(inc "examples/misc/express-ex" :use-source t)
+\end{lstlisting}
+\end{codeblock}
+
+The example defines the group \code{express} and its clock.
+Place the client in that group too, so its evaluator understands the
+extra \code{:express} send argument:
+
+\begin{codeblock}
+\begin{lstlisting}
+[object finite-express-sender
+ (group express)
+ (script
+  (=> :peek ![clock <== :peek :express])
+  (=> :past-peek @ R [clock <= :peek @ R :express])
+  (=> :atomic-result !(atomic 42)))]
+\end{lstlisting}
+\end{codeblock}
+
+Try these short exchanges:
+
+\begin{codeblock}
+\begin{lstlisting}
+[clock <== :peek]                         ; => 0
+[finite-express-sender <== :peek]          ; => 0
+[finite-express-sender <== :past-peek]     ; => 0
+[finite-express-sender <== :atomic-result] ; => 42
+\end{lstlisting}
+\end{codeblock}
+
+The first query is ordinary. The second goes through an express-capable
+sender. The third forwards the caller's reply destination through a
+past-type express send; \code{@ R}, not \code{<=} alone, supplies that
+reply path. The last expression shows that \code{atomic} returns its
+body's value.
+
+This exercise studies routing to an idle receiver, not interruption of
+a running computation. Section~\ref{sec:original-express} follows the
+original clock's scripts, mode transitions, and evaluator front end.

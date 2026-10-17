@@ -1,0 +1,47 @@
+(defun copy-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&COPY-PASS ~A~%" name)
+  (error "COPY-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/copy-tests/lib/copy" :use-source t)
+[object copy-anchor (script (=> :ping !:pong))]
+[copy-shared-value := (list :shared)]
+[object stateful-copy-source
+ (state [n := 7] [empty := nil] [flag := t] [tag := :tag]
+        [symbol := 'copy-unbound-payload] [text := "copied"]
+        [shared := copy-shared-value] [alias := copy-shared-value]
+        [link := copy-anchor] [function := #'identity])
+ (script (=> :values !(list n empty flag tag symbol text shared alias link function))
+         (=> [:set-n value] [n := value] !n)
+         (=> [:set-shared value] [shared := value] !shared)
+         (=> :mutate-shared (setf (car shared) :mutated) !shared))]
+[source-values := [stateful-copy-source <== :values]]
+[stateful-clone := [copier <== [:copy stateful-copy-source]]]
+[clone-values := [stateful-clone <== :values]]
+(copy-check "numeric-state" (first clone-values) 7)
+(copy-check "nil-state" (second clone-values) nil)
+(copy-check "true-state" (third clone-values) t)
+(copy-check "keyword-state" (fourth clone-values) :tag)
+(copy-check "symbol-is-a-value-not-a-call" (fifth clone-values) 'copy-unbound-payload)
+(copy-check "string-state" (sixth clone-values) "copied")
+(copy-check "list-reference-preserved" (eq (seventh clone-values) (seventh source-values)) t)
+(copy-check "alias-reference-preserved" (eq (seventh clone-values) (eighth clone-values)) t)
+(copy-check "object-reference-preserved" (ninth clone-values) copy-anchor)
+(copy-check "function-reference-preserved" (eq (tenth clone-values) (tenth source-values)) t)
+(copy-check "function-remains-callable" (funcall (tenth clone-values) :payload) :payload)
+(copy-check "distinct-state-environments" (eq [[meta stateful-clone] <== :state] [[meta stateful-copy-source] <== :state]) nil)
+(copy-check "source-assignment" [stateful-copy-source <== [:set-n 8]] 8)
+(copy-check "clone-binding-independent" (first [stateful-clone <== :values]) 7)
+(copy-check "clone-assignment" [stateful-clone <== [:set-n 9]] 9)
+(copy-check "source-binding-independent" (first [stateful-copy-source <== :values]) 8)
+(copy-check "shared-data-mutation" [stateful-clone <== :mutate-shared] '(:mutated))
+(copy-check "source-sees-shared-mutation" (seventh [stateful-copy-source <== :values]) '(:mutated))
+(copy-check "clone-rebinds-only-its-slot" [stateful-clone <== [:set-shared [:replacement]]] '(:replacement))
+(copy-check "source-keeps-original-list" (seventh [stateful-copy-source <== :values]) '(:mutated))
+(copy-check "clone-alias-keeps-original-list" (eighth [stateful-clone <== :values]) '(:mutated))
+[group state-copy-group]
+[group-clone := [copier <== [:copy stateful-copy-source :group state-copy-group]]]
+(copy-check "state-through-group-construction" (first [group-clone <== :values]) 8)
+[meta-clone := [copier <== [:copy stateful-copy-source :meta-gen [state-copy-group <== :meta-gen]]]]
+(copy-check "state-through-explicit-generator" (first [meta-clone <== :values]) 8)
+(format t "~&COPY-END~%")
+:q

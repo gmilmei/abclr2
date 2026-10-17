@@ -1,0 +1,224 @@
+\subsection{Object Copies Are Not Independent Computations}
+\label{sec:copy}
+
+The original \filepath{lib/copy.abclr2} creates another object from an
+existing object's scripts, state information, and pending messages.
+For an OOP reader, the important question is not just ``is the identity
+different?'' but ``which references and pending effects remain shared?''
+This library also underlies \code{report} and can move an object into
+the \code{watching} group defined by \code{watch}.
+
+\paragraph{What is shared.}
+Copying preserves local state values but is neither deep nor atomic: new local bindings retain the
+same referenced data, while outer lexical environments, scripts, and queued
+reply destinations remain shared. The examples below separate these effects;
+do not interpret them as independent replay of an active computation.
+
+\subsubsection{Read the Original Fibonacci Experiment}
+
+The library's final block comment defines a recursive Fibonacci object.
+It creates a collector for each nontrivial request and sends two requests
+to itself: both target \code{Me}, not newly created worker objects.
+The later Pcontrol project (Section~\ref{sec:pcontrol-fib}) uses newly
+created children instead; you do not need that project to follow this one.
+
+\wholelisting[firstline=164,lastline=179]{lib/copy.abclr2}
+
+The collector captures \code{R}, the reply destination of the original
+request. Its local \code{half-result} stores the first answer; the next
+answer is added to it and sent to \code{R}. The base cases are 0 and 1.
+Without copying an active computation, \code{[fib <== 5]} returns 5.
+The library then proposes this experiment:
+
+\wholelisting[firstline=181,lastline=187]{lib/copy.abclr2}
+
+To replay it, load \code{lib/copy} with \code{inc-lib}, enter the
+original \code{fib} definition, then enter this expression. The automated
+\code{copy-check} target extracts both source ranges without editing them.
+The \code{dotimes} loop is a scheduling opportunity, not a timed delay.
+The copy can inherit requests already waiting for \code{fib}; those
+requests still carry references to the original reply continuations and
+collectors. Starting the copy can therefore deliver additional answers
+into the original computation. The original comment warns that the result
+can seem ``funny.''
+
+Do not expect one fresh, independent Fibonacci answer from this session.
+In the checked run the same \code{Fib(5)=} label appeared several times
+with values including 4, 5, and 6. Those values are observations, not a
+specified sequence to reproduce on every schedule. A collector designed
+for two answers cannot distinguish extra answers caused by duplicated
+work. A successful ordinary \code{[fib <== 5]} after the experiment does
+not certify independent continuation copying.
+
+\subsubsection{Make Sharing Visible with a Small Object}
+
+The supplemental \filepath{tutorial/examples/11-copy.abclr2} puts a
+counter binding in an \emph{outer lexical environment}, not in an object's
+local \code{state} frame:
+
+\wholelisting[firstline=4,lastline=10]{tutorial/examples/11-copy.abclr2}
+
+The outer assignment retains the object in the top-level binding
+\code{copy-source}. The name \code{copy-subject} inside the \code{let}
+is local to that environment; a printed object name is not a guarantee
+that a top-level variable of that name exists.
+In a fresh session, try:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "tutorial/examples/11-copy" :use-source t)
+[clone := [copier <== [:copy copy-source]]]
+(eq clone copy-source)                 ; => NIL
+[copy-source <== :increment]           ; => 1
+[clone <== :value]                     ; => 1
+[clone <== :increment]                 ; => 2
+[copy-source <== :value]               ; => 2
+\end{lstlisting}
+\end{codeblock}
+
+The objects and their metaobjects have distinct identities, but the
+scripts are reused and the outer environment is retained. Both objects
+therefore update the same binding \code{shared}. This is not a deep copy
+of all reachable Lisp data or of captured application objects.
+It is also not the proposed \code{COPY} environment semantics discussed
+as future work in the historical guide.
+
+\subsubsection{Follow the Copier's Construction Protocol}
+
+Start with the \code{:group} handler, which the default copy request
+also uses:
+
+\wholelisting[firstline=44,lastline=54]{lib/copy.abclr2}
+
+It first queries the original metaobject for its queue, state environment,
+and scripts. It asks that environment for its local association list and
+outer \code{:lexEnv}. Then \code{alist->stateSpec} builds an object
+creation specification, and the selected group manager receives
+\code{[:new stateSpec lexEnv scripts]}. The reply is a \emph{metaobject}.
+The continuation gives the new object a display name, arranges its pending
+messages through \code{message-setter}, and forwards the final object
+to the copier's caller.
+
+\noindent\begin{minipage}{\linewidth}
+\begin{longtable}{L{0.30\textwidth}L{0.60\textwidth}}
+\textbf{Part} & \textbf{Copy protocol}\\\hline
+Object/metaobject identity & Creates new identities; renaming does not redirect
+existing application references.\\
+Scripts & Passes the existing script objects to the new construction.\\
+Local state & Reconstructs an initializer specification from current values;
+creates separate bindings but retains referenced data.\\
+Outer lexical environment & Reuses the original environment reference.\\
+Pending messages & Enqueues the original message/reply/sender records on the
+copy; leaves the original queue in place.\\
+Active execution & Does not clone an executing evaluator context or
+recursively replace captured continuations and collectors.\\
+\end{longtable}
+\end{minipage}
+
+These are several reflective requests, not an atomic snapshot protocol.
+If an application continues to change while they run, do not assume the
+collected queue and state describe one indivisible instant.
+Custom metaobjects must support the queried reflection protocol.
+
+\paragraph{How local-state values are preserved.}
+For a binding \code{(n . 7)}, the helper captures 7 in a zero-argument
+function and uses that function as the operand of \code{:self-evaluate}.
+The primary evaluator calls it with \code{funcall} to obtain the value.
+This also preserves a symbol or function as data rather than accidentally
+calling it. The binding is new, not the referenced value: assigning the
+copy's numeric slot leaves the source's slot unchanged; mutating a shared
+list is visible through both. Rebinding that list slot does not rebind its
+aliases. Initializer order and the outer environment are unchanged.
+
+\subsubsection{Choose the Group and Evaluator Deliberately}
+
+The library accepts these ordered message patterns. In the table,
+\code{obj}, \code{g}, \code{mg}, and \code{ev} stand for evaluated objects:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{longtable}{L{0.48\textwidth}L{0.42\textwidth}}
+\textbf{Request to \code{copier}} & \textbf{Construction policy}\\\hline
+\code{[:copy obj]} & Original group, using that group's current generator
+and evaluator.\\
+\code{[:copy obj :group g]} & Selected group's generator and evaluator.\\
+\code{[:copy obj :meta-gen mg]} & Selected generator, original object's
+current evaluator, original group.\\
+\code{[:copy obj :meta-gen mg :eval ev]} & Selected generator and evaluator,
+original group.\\
+\end{longtable}
+\end{minipage}
+
+In particular, the simplest copy does \emph{not} necessarily retain an
+object-specific evaluator override: it goes through the group's current
+creation policy. The explicit \code{:meta-gen} form retrieves the source
+object's evaluator instead. The tests distinguish these cases by comparing
+evaluator identities. These are message patterns, not unrestricted Common
+Lisp keyword arguments; retain the indicated order and combinations.
+
+The macro \code{(copy name)} assigns the copy back to the binding
+\code{name}. It also accepts \code{:group} or \code{:meta-gen}, but not both,
+and has no \code{:eval} keyword of its own. For example, if
+\code{[old-reference := copy-source]} precedes \code{(copy copy-source)},
+\code{old-reference} still denotes the original object. Rebinding one name
+does not update all references held by other objects.
+
+\subsubsection{Copy Pending Work without Silently Starting It}
+
+The original queue installer is short enough to read completely:
+
+\wholelisting[firstline=150,lastline=157]{lib/copy.abclr2}
+
+It sends \code{:enqueue} for each saved record and replies with
+\code{[den newMeta]}, the new application object. The \code{:begin}
+send is deliberately commented out. Copying pending work therefore does
+not start that work; it also does not remove the original requests.
+When a copy already has a nonempty queue, send \code{:begin} to its
+metaobject to start it. Do not send \code{:begin} blindly to an empty queue.
+An empty-queue copy can receive ordinary application requests normally.
+An ordinary query is not a passive queue probe: it can start execution.
+Inspect the metaobject's \code{:queue} instead when checking pending work.
+
+The bounded queue exercise stages one pending record explicitly, so it
+does not depend on interrupting a running computation:
+
+\begin{codeblock}
+\begin{lstlisting}
+[object copy-inbox
+ (state [values := nil])
+ (script
+  (=> :values !(reverse values))
+  (=> value [values := (cons value values)]))]
+[[meta copy-source]
+ <= [:enqueue [[:echo 42] copy-inbox copy-source]]]
+[queued-clone := [copier <== [:copy copy-source]]]
+[copy-inbox <== :values]                ; => NIL
+[[meta queued-clone] <= :begin]
+[copy-inbox <== :values]                ; => (42)
+[[meta copy-source] <= :begin]
+[copy-inbox <== :values]                ; => (42 42)
+\end{lstlisting}
+\end{codeblock}
+
+Here \code{[:enqueue ...]} takes the internal triple
+\code{[message reply sender]}, not an ordinary application payload.
+Both copies retain \code{copy-inbox} as the reply destination. The
+original queue still held its request after the clone ran; starting it
+produces the second 42. Enqueueing this way is a controlled reflective
+exercise, not the recommended way to submit normal application work.
+Do not interpret copying as exactly-once processing, migration that
+deletes the source, or independent replay of an active computation.
+
+\paragraph{Evidence and exercise.}
+Run \code{make -C tutorial copy-check}. Fifty-two successful probes
+cover the original Fibonacci session, identities, shared lexical bindings,
+script reuse, queue copying/startup, alias rebinding, and group/evaluator
+selection. Twenty-three state checks cover values, reference identity,
+independent bindings, shared mutation, and both construction routes. Source extracts,
+copies, inputs, and transcripts stay in \filepath{build/copy-tests/}.
+
+Why do both copies increment \code{shared}? They retain the same outer
+environment. Why does the inbox receive two replies? Both queues contain
+a request addressed to it; only the execution start is separate. As an
+exercise, keep the original and a named copy, then change which binding
+you query. Predict identity and lexical effects separately. Do not infer
+deep-copy semantics from separate object identities.

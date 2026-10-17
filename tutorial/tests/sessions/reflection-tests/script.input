@@ -1,0 +1,24 @@
+
+(defun reflection-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&REFLECTION-PASS ~A~%" name)
+      (error "REFLECTION-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "@ROOT@/build/reflection-tests/user-script" :use-source t)
+(reflection-check "initial-showman" [Monkey-Showman <== :try] "Scratch!")
+(reflection-check "initial-audience" [Poor-Audience <== :try] "Scratch!")
+(reflection-check "match-success" (car [monkey-script <== [:match :play-trick Monkey Monkey-Showman]]) (list (cons 'R Monkey)))
+(reflection-check "match-expression" (cadr [monkey-script <== [:match :play-trick Monkey Monkey-Showman]]) (list :script monkey-script))
+(reflection-check "match-wrong-sender" [monkey-script <== [:match :play-trick Monkey Poor-Audience]] nil)
+(reflection-check "match-other-message" [monkey-script <== [:match :unknown Monkey Monkey-Showman]] nil)
+[[meta Monkey] <= [:add-script monkey-script]]
+(reflection-check "installed-first" (car [[meta Monkey] <== :scripts]) monkey-script)
+(reflection-check "installed-script-dispatch" [Monkey-Showman <== :try] "Hansei")
+(reflection-check "audience-after-install" [Poor-Audience <== :try] "Scratch!")
+[object receiver (state [answer := nil]) (script (=> :answer !answer) (=> x [answer := x]))]
+[object context (script (=> [:value-of 'R] !receiver))]
+(reflection-check "exec-completion" [monkey-script <== [:exec context [meta Monkey] group nil]] nil)
+(reflection-check "exec-application-reply" [receiver <== :answer] "Hansei")
+
+(format t "~&REFLECTION-END~%")
+:q

@@ -1,0 +1,152 @@
+;;; -*- Mode:abcl1 -*-
+;;; heavy-meta.abclr2
+;;; Metaobject definition for objects with WHERE forms.
+;;; Jul. 24, 1992 by MASUHARA, H.
+;;; Dec. 14, 1944 WHERE field is now separated from a script body.
+
+(provide 'heavy-meta)
+
+;; The metaobject generator for objects with where-field scripts.
+;; The name of the following object must be equall to the value of
+;; variable "heavy-meta-name" which is defined in translate.lsp.
+[object heavy-meta
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new StateSpec LexEnv Scripts Eval GMgr] @ R
+       ;; Metaobject with WHERE form
+       [object heavy-metaobject
+	 (meta-gen non-reifying-meta)
+	 (state [queue := [queue-gen <== :new]]
+		[state := nil]
+		[scriptSet := scripts]
+		[evaluator := Eval]
+		[Group-manager := GMgr]
+		[mode := ':dormant]
+		[current-MRS := nil]	; current matching/executing message
+		[scripts-to-be-tested := nil]) ; scripts waiting for matching
+	 (script
+	  (=> [:message Message Reply Sender]
+	      [queue <= [:enq [Message Reply Sender]]]
+	      (when (eq mode ':dormant)
+		[mode := ':active]
+		[Me <= :begin]))
+	  ;; Start of script matching.
+	  (=> :begin
+	      [queue <= :deq
+	       @ [cont MRS
+	          [Me <= [:find-match MRS scriptSet]]]])
+	  ;; Continuing script pattern matching.
+	  (=> [:find-match [M R S] nil]
+	      ;; NOTE: ABCL/1 semantics
+	      (warn "~S cannot handle the message ~S" [den Me] M))
+	  (=> [:find-match MRS [aScript . restScripts]]
+	   ;; Basically, the metaobject performs the following actions:
+	   ;; (1) pattern match, (2) environment generation, (3) evaluation
+	   ;; of where expression, and (4) evaluation of the body.
+	   ;; The following expression sketch the actions; however, it won't
+	   ;; run because this is not in CPS.
+	   #+COMMENT
+	   (match [aScript <== [:match . MRS]]
+	     (is [Bindings ScriptBody]
+	       (let ((env [env-gen <== [:new Bindings state]])
+		     (whereExp [aScript <== :where-exp]))
+		 (if (or (null whereExp)
+			 [evaluator
+			  <== [:do whereExp env Me Group-Manager evaluator]])
+		     [evaluator <= [:do scriptBody env Me
+				    Group-Manager evaluator]
+				@ [cont _ [Me <= :end]]]
+		     [Me <= [:find-match MRS restScripts]])))
+	     (otherwise
+	      [Me <= [:find-match MRS restScripts]]))
+	   ;; After the (manual :-) CPS transformation:
+	   ;; test matching
+	   [aScript <= [:match . MRS]
+	    @ [cont match-result
+	       (match match-result
+		(is [Bindings ScriptBody]
+		 ;; generate evaluation environment
+		 [env-gen <= [:new Bindings state]
+		  @ [cont env
+		     ;; looks for where expression
+		     [aScript <= :where-exp
+		      @ [cont whereExp
+		         (if whereExp
+			   ;; if exists, test the where expression
+			   [evaluator <= [:do whereExp env Me Group-Manager
+			                      evaluator]
+			    @ [cont whereResult
+			       (if whereResult
+				;; good, evaluate the body
+				[evaluator <= [:do scriptBody env Me
+						   Group-Manager evaluator]
+				 @ [cont _ [Me <= :end]]]
+				;; where exp failed, try next script
+				[Me <= [:find-Match MRS restScripts]])]]
+			   ;; no where expression, just start exec.
+			   [evaluator <= [:do scriptBody env Me Group-Manager
+			   		      evaluator]
+			    @ [cont _ [Me <= :end]]])]]]])
+		(otherwise
+		 ;; match failed. try next script
+		 [Me <= [:find-Match MRS restScripts]]))]])
+	  ;; End of script execution.
+	  (=> :end
+	      (if (not [queue <== :empty?])
+		  [Me <= :begin]
+		  [mode := ':dormant]))
+	  ;; reflective operations
+	  (=> :state !state)
+	  (=> [:set-state s]
+	      [state := s])
+	  (=> :queue @ R
+	      [queue <= :listify @ R])
+	  (=> :dequeue @ R
+	      [queue <= :deq @ R])
+	  (=> [:enqueue item]
+	      [queue <= [:enq item]])
+	  (=> :scripts !scriptSet)
+	  (=> [:find-script Message]
+	      !(search-script Message nil nil scriptSet))
+	  (=> [:add-script new-script]
+	      [scriptSet := (cons new-script ScriptSet)])
+	  (=> [:remove-script Message]
+	      [scriptSet := (remove-script Message nil nil ScriptSet)])
+	  )]
+;; PORT-BEGIN: Set the known owner before initialization; NRM state remains opaque.
+;; PORT-ACTIVE
+       (setf (r2sys::object-data-gid [den heavy-metaobject]) GMgr)
+;; PORT-END
+       ;; initialize state variables
+       [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		  LexEnv heavy-metaobject GMgr Eval]
+	     @ [cont initValues
+		     [heavy-metaobject
+		      <= [:set-state
+			  [env-gen 
+			   <== [:new (pairlis (stateSpec-varNames stateSpec)
+					      initValues)
+				     LexEnv]]]]
+		     [R <= heavy-metaobject]]]))]
+
+#|
+;; Following codes are test for heavy-meta --- object with WHERE form.
+;; These are modified version of ones shown in ``ABCL/1 User's Guide.''
+
+[object counter
+  ;; (meta-gen heavy-meta) <-- attached automatically
+  (state [c := 0])
+  (script
+   ;; increment positive number only.
+   (=> [:add n] where (and (integerp n) (plusp n))
+       [c := (+ c n)])
+   (=> [:add _])			; ignored
+   (=> [:value]
+       !c)
+   (=> [:reset]
+       [c := 0]))]
+
+[counter <= [:add 123]]			; added
+[counter <= [:add -100]]		; ignored
+[counter <== [:value]]			; get 123
+|#

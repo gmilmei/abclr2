@@ -1,0 +1,23 @@
+(defun watch-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&WATCH-PASS ~A~%" name)
+  (error "WATCH-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/watch-tests/12-watch" :use-source t)
+(inc-lib "@ROOT@/build/watch-tests/lib/copy" :use-source t)
+[object built-in-watched (group watching) (script (=> value ![watch-target <== value]))]
+(watch-check "preconfigured-group" [built-in-watched <== 12] 12)
+[original := [[meta watch-driver] <== :evaluator]]
+[watched-copy := watch-driver]
+(copy watched-copy :group watching)
+(watch-check "copied-identity" (eq watched-copy watch-driver) nil)
+(watch-check "copied-group" (r2sys::group-of watched-copy) watching)
+(watch-check "copied-sender-result" [watched-copy <== [:now 33]] 33)
+(watch-check "source-evaluator-unchanged" [[meta watch-driver] <== :evaluator] original)
+[wrapper := [[meta watched-copy] <== :evaluator]]
+(nowatch watched-copy)
+(watch-check "preconfigured-wrapper-not-registered" [[meta watched-copy] <== :evaluator] wrapper)
+[underlying := [wrapper <== :original-evaluator]]
+[[meta watched-copy] <= [:set-evaluator underlying]]
+(watch-check "explicit-unwrap" [[meta watched-copy] <== :evaluator] underlying)
+(format t "~&WATCH-END~%")
+:q

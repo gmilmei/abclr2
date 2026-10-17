@@ -1,0 +1,56 @@
+;;; -*- Mode: Text -*-
+;;; README.abclr2
+#|
+
+This example program is metalevel definitions for TimeWarp
+algorithm[1], which is an algorithm for parallel discrete event
+simulation.  In addition to rollback mechanism at metalevel, this
+program has ability to control scheduling policy (for example, one
+can use Lowest Virtual Time first scheduling).
+
+As details of the algorithm are describe in [2] and [3], only how to
+use of this program is shown here.
+
+1. How to run this program.
+
+First "cd" to this directory, then evaluate (inc "tw-load"). This
+compiles all programs and then loads.  Loaded program is a "car wash
+problem" (same as the one described in [4]).  Sending a message to
+"starter" starts simulation in two kinds of scheduling policy (Lowest
+LVT first and FIFO).  For example,
+	[starter <== [:start [3 4 6] 10]]
+starts a simulation with three attendants whose washing times are 3,
+4, and 6, respectively, and 10 cars.
+
+
+2. How to use this program for other simulations.
+
+All files except for "tw-load", "tw-wash0", and "tw-wash1" are the
+definition for TimeWarp group.  An objects in TimeWarp group is
+created by the form:
+  [object foo
+   (group tw-group)
+    ...]
+Local virtual time for an object can be referred by a pseudo-variable
+"LVT".  A message with virtual receive time is sent by a form:
+  [<target> <= <message> @ <reply> :vrt <time>]
+An object that receives the message is automatically adjusted its
+virtual time, or forced to rollback.  When rollback occurs, state
+variables of the object is automatically restored.
+
+The author apologizes that this program is very hard-to-read.  We
+could write more sophisticated one, if we had more time...
+
+References
+
+[1]  David R. Jefferson, "Virtual Time," in ACM Transactions on
+Programming Languages and Systems, 7(3): 404-425, July 1985.
+
+[2] Satoshi Matsuoka, Takuo Watanabe, and Akinori Yonezawa, "Hybrid
+Group Reflective Architecture for Object-Oriented Concurrent
+Reflective Programming," in Proc. ECOOP'91, number 512 in LNCS,
+pp.231-250, Springer-Verlag, 1991
+
+[3] Hidehiko Masuhara, Satoshi Matsuoka, Takuo Watanabe, and Akinori
+Yonezawa, "Object-Oriented Concurrent Reflective Languages can be
+Implemented Efficiently," in Proc. OOPSLA'92, to appear.

@@ -1,0 +1,66 @@
+\section{Concept and Protocol Index}
+\label{sec:concept-index}
+
+Use this alphabetical index to return to an explanation, not as a list of
+every occurrence. Entries give the section and its starting page. For
+notation use Appendix~\ref{sec:syntax}; for original filenames use
+Appendix~\ref{sec:source-map}.
+
+\begingroup
+\renewcommand{\arraystretch}{1.4}
+\newcommand{\indexroute}[1]{\ref{#1} (p.~\pageref{#1})}
+\begin{longtable}{@{}p{0.52\textwidth}p{0.43\textwidth}@{}}
+\textbf{Concept or protocol} & \textbf{Explanation}\\\hline
+\endhead
+Actors and asynchronous messages & \indexroute{sec:messages}\\
+Assignment & \indexroute{sec:state}\\
+Atomic regions and their limits & \indexroute{sec:message-extensions}; \indexroute{sec:original-express}\\
+Bindings, lexical scope, and Lisp notation & \indexroute{sec:lisp-reading}\\
+Breakpoints and environment inspection & \indexroute{sec:break}\\
+Built-in object protocols & \indexroute{sec:builtin-reading}\\
+Callbacks and script lambdas & \indexroute{sec:objects}; \indexroute{sec:failures}\\
+Compilation and cached translations & \indexroute{sec:loading}\\
+Completion: application versus evaluation & \indexroute{sec:originals}\\
+Continuations, \code{cont}, and explicit reply targets & \indexroute{sec:messages}\\
+Copy: identity, state, and shared references & \indexroute{sec:copy}\\
+Denotation, \code{den}, and \code{meta} & \indexroute{sec:reflection}\\
+Dispatch and script selection & \indexroute{sec:objects}; \indexroute{sec:guards}\\
+Environment frames and inspection & \indexroute{sec:reflection}; \indexroute{sec:break}\\
+Evaluation context: Env, Id, Gid, Eval, C & \indexroute{sec:reflection}\\
+Express messages and preemption & \indexroute{sec:message-extensions}; \indexroute{sec:original-express}\\
+Fault tolerance: rejection and retry & \indexroute{sec:retry}\\
+Fibonacci: recursive objects and reply joins & \indexroute{sec:pcontrol-fib}\\
+Futures, \code{make-future}, and \code{next-value} & \indexroute{sec:futures}; \indexroute{sec:original-future}\\
+Groups, \code{group-of}, and object creation & \indexroute{sec:reflection}; \indexroute{sec:original-inherit}\\
+Guards, \code{where}, and heavy-meta & \indexroute{sec:guards}\\
+Host events and the pending-request slot & \indexroute{sec:host-events}\\
+Identity and metaobject towers & \indexroute{sec:meta-meta-reading}\\
+Inheritance and forwarding reply destinations & \indexroute{sec:original-inherit}\\
+Interrupting evaluation & \indexroute{sec:interrupt}\\
+Job-service protocol: run, square, done, report & \indexroute{sec:project}\\
+Loading: \code{inc}, \code{comp}, and \code{inc-lib} & \indexroute{sec:loading}\\
+Macros and supported Lisp forms & \indexroute{sec:first-session}; \indexroute{sec:failures}\\
+Matching, dotted patterns, and fallback & \indexroute{sec:objects}\\
+MCP and the meta-circular interpreter & \indexroute{sec:mcp-reading}\\
+Me and the currently executing object & \indexroute{sec:reflection}\\
+Messages: past-, now-, and future-type & \indexroute{sec:messages}; \indexroute{sec:futures}\\
+Modules: \code{require} and \code{provide} & \indexroute{sec:loading}\\
+Monitor measurements and their limits & \indexroute{sec:pcontrol-monitor}\\
+Multicast and positional reply collection & \indexroute{sec:multicast}\\
+Non-reifying execution & \indexroute{sec:reflection}; \indexroute{sec:tw-variants}\\
+Objects, factories, and scripts & \indexroute{sec:objects}; \indexroute{sec:account}\\
+Priority queues and scheduling policy & \indexroute{sec:pcontrol-policy}\\
+Quicksort as a message-driven state machine & \indexroute{sec:pcontrol-qsort}\\
+Reflection: evaluator and metaobject routes & \indexroute{sec:reflection}; \indexroute{sec:original-if}\\
+Reification: \code{reify-args}, \code{reify-args-to-meta} & \indexroute{sec:reflection}; \indexroute{sec:interrupt}\\
+Replies, \code{!}, sender, and destination & \indexroute{sec:objects}; \indexroute{sec:originals}\\
+Report: receiving-side observation and restoration & \indexroute{sec:report}\\
+Rollback, anti-messages, and replay & \indexroute{sec:tw-recovery}; \indexroute{sec:tw-cascade}\\
+Script installation and dynamic updates & \indexroute{sec:user-script-reading}\\
+State versus temporary bindings & \indexroute{sec:state}; \indexroute{sec:objects}\\
+Streams and terminal-message protocols & \indexroute{sec:original-future}; \indexroute{sol:stream}\\
+Time Warp: virtual time and simulation & \indexroute{sec:timewarp}\\
+Transactions: limits of an account transfer & \indexroute{sol:transfer}\\
+Watch: outgoing-send observation and restoration & \indexroute{sec:watch}\\
+\end{longtable}
+\endgroup

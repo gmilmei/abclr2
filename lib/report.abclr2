@@ -1,0 +1,157 @@
+;;; -*- Mode: ABCL1 -*-
+;;; report.abclr2
+;;; A metaobject that reports message arrivals/script execution/termination.
+;;; Nov. 22, 1992 by MASUHAR, H.
+
+(provide 'report)
+
+#|
+(report sym &key (message t) (begin t) (end t))		[macro]
+
+A copy of an object (bound to SYM) is created.  The copy is assigned
+to SYM. The copy reports message arrivals and script
+executions/terminations according to the keywords MESSAGE, BEGIN, and
+END.  The original object is saved into the variable *REPORTING-OBJECTS*.
+
+(noreport sym)
+
+An original object of an object (bound ta SYM) is assigned to SYM.
+
+|#
+
+(require 'copy)
+
+[*reporting-objects* := nil]
+
+(defmacro report (objectSymbol &key (message t) (begin t) (end t)
+                               &aux (tmp (gensym)) (df (gensym)) (nf (gensym)))
+  (unless (typep objectSymbol 'symbol)
+    (abclr2-system::abclr2-error "An argument to report must be a symbol."))
+  `(let* ((,tmp [copier <== [:copy ,objectSymbol :meta-gen meta/report-gen]])
+          (,df [[meta ,tmp] <== :reporter])
+          (,nf [standard-filter-gen <== [:new ,df :message ,message 
+                                                  :begin ,begin
+                                                  :end ,end]]))
+     (push (cons ,tmp ,objectSymbol) *reporting-objects*)
+     [[meta ,tmp] <= [:set-reporter ,nf]]
+     [,objectSymbol := ,tmp]))
+
+(defmacro noReport (objectSymbol &aux (tmp (gensym)))
+  `(let ((,tmp (cdr (assoc ,objectSymbol *reporting-objects*))))
+     (when ,tmp
+       [*reporting-objects* := (delete ,objectSymbol *reporting-objects*
+                                       :key #'car)]
+       [,objectSymbol := ,tmp])))
+
+[object meta/report-gen
+ (meta-gen non-reifying-meta)
+ (script
+  (=> [:new StateSpec LexEnv Scripts Eval GMgr] @ R
+      [object Metaobject
+       (meta-gen non-reifying-meta)
+       (state [queue := [queue-gen <== :new]]
+	      [state := nil]
+	      [scriptSet := scripts]
+	      [evaluator := Eval]
+	      [Group-manager := GMgr]
+	      [mode := ':dormant]
+              [reporter := default-reporter])
+       (script
+	(=> [:message Message Reply Sender]
+            [reporter <= [:report Me :message [Message Reply Sender]]]
+	    [queue <= [:enq [Message Reply Sender]]]
+	    (when (eq mode ':dormant)
+	      [mode := ':active]
+	      [Me <= :begin]))
+	(=> :begin
+	    (match [queue <== :deq]
+	      (is [Message Reply Sender]
+                  [reporter <= [:report Me :begin [Message Reply Sender]]]
+		  (match (find-script Message Reply Sender scriptSet)
+		    (is [Bindings ScriptBody]
+			[evaluator 
+			  <= [:do
+			      ScriptBody [env-gen <== [:new Bindings state]]
+			      Me Group-manager evaluator]
+			  @ [cont _
+                             [reporter 
+                              <= [:report Me :end [Message Reply Sender]]]
+			     [Me <= :end]]])
+		    (otherwise
+		     (warn "~S cannot handle the message ~S"
+			   [den Me] Message))))))
+	(=> :end
+	    (if (not [queue <== :empty?])
+	      [Me <= :begin]
+	      [mode := ':dormant]))
+	;; reflective operations
+	(=> :state !state)
+	(=> [:set-state s]
+	    [state := s])
+	(=> :queue @ R
+	    [queue <= :listify @ R])
+	(=> :dequeue @ R
+	    [queue <= :deq @ R])
+	(=> [:enqueue item]
+	    [queue <= [:enq item]])
+        (=> :scripts !scriptSet)
+	(=> [:find-script Message]
+	    !(search-script Message nil nil scriptSet))
+	(=> [:add-script new-script]
+	    [scriptSet := (cons new-script ScriptSet)])
+	(=> [:remove-script Message]
+	    [scriptSet := (remove-script Message nil nil ScriptSet)])
+        (=> :evaluator !evaluator)
+        (=> [:set-evaluator e] [evaluator := e])
+        (=> :reporter !reporter)
+        (=> [:set-reporter new-reporter]
+            [reporter := new-reporter])
+	)]
+;; PORT-BEGIN: Set the known owner before initialization; NRM state remains opaque.
+;; PORT-ACTIVE
+      (setf (r2sys::object-data-gid [den Metaobject]) GMgr)
+;; PORT-END
+      ;; initialize state variables
+      [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		 LexEnv Metaobject GMgr Eval]
+	    @ [cont initValues
+		    [Metaobject
+		     <= [:set-state
+			 [env-gen 
+			  <== [:new (pairlis (stateSpec-varNames stateSpec)
+					     initValues)
+				    LexEnv]]]]
+		    [R <= Metaobject]]]))]
+
+(defun default-reporting-function (object type M R S)
+  (let ((*print-length* 3) (*print-level* 2))
+    (format t "~&~S(~7A): ~S from ~S (reply=~S)"
+            object type M S R)))
+
+[object default-reporter
+ (meta-gen non-reifying-meta)
+ (script
+  (=> [:report metaObject type [M R S]]
+;; PORT-BEGIN: Pass message, reply and sender in the formatter's declared order.
+;;|      (default-reporting-function [den metaObject] type M S R)))]
+;; PORT-ACTIVE
+      (default-reporting-function [den metaObject] type M R S)))]
+;; PORT-END
+
+[object standard-filter-gen
+ (meta-gen non-reifying-meta)
+ (script
+  (=> [:new next-filter :message m :begin b :end e]
+      ![object standard-filter
+        (meta-gen non-reifying-meta)
+        (script
+         (=> [:report metaObject :message MRS]
+             (if m
+               [next-filter <= [:report metaObject :message MRS]]))
+         (=> [:report metaObject :begin MRS]
+             (if b
+               [next-filter <= [:report metaObject :begin MRS]]))
+         (=> [:report metaObject :end MRS]
+             (if e
+               [next-filter <= [:report metaObject :end MRS]])))]))]
+

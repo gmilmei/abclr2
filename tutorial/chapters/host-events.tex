@@ -1,0 +1,163 @@
+\subsection{A Safe Experiment with Synthetic Host Events}
+\label{sec:host-events}
+
+The event interface turns a host notification into an ABCL message.
+You can explore that boundary without a timer, an operating-system signal,
+or another thread. The following supplemental exercise uses the interface
+described by the user's guide and implemented in \filepath{src/signal.lsp};
+there is no corresponding runnable event example in \filepath{examples/}.
+It changes no original source and installs no operating-system callbacks.
+
+\paragraph{Receive and inspect an event.}
+The file \filepath{tutorial/examples/14-host-events.abclr2} defines an
+ordinary recording object. Loading it does not install it as a handler:
+
+\wholelisting[firstline=2,lastline=8]{tutorial/examples/14-host-events.abclr2}
+
+The dotted pattern \code{[:signal . parameters]} binds the argument tail
+as a list. Each saved record contains that list, the reply destination,
+and the sender. A host notification arrives with both reply and sender
+\code{nil}: it is not an application call waiting for \code{!}.
+The separate \code{:events} query does reply, allowing us to inspect
+what the handler has processed.
+
+Start a fresh interpreter at the repository root and save its current
+handler before temporarily replacing it:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "tutorial/examples/14-host-events" :use-source t)
+[saved-event-handler := *signal-handler*]
+[*signal-handler* := event-inbox]
+(r2sys:send-signal :tick 7)
+[event-inbox <== :events]           ; => (((:TICK 7) NIL NIL))
+\end{lstlisting}
+\end{codeblock}
+
+The \code{r2sys:} prefix names the exported host interface in the
+ABCL/R2 system package. \code{send-signal} accepts an ordinary Lisp
+\code{\&rest} argument list and constructs \code{(:signal :tick 7)}.
+It submits the notification; returning from that function is not an
+acknowledgment from your handler. This finite interactive exercise lets
+the runtime dispatch the event before inspecting the inbox. Do not infer
+a general ordering guarantee between independent producers, or use a
+notification as proof that unrelated work finished.
+
+Passing one list is different from passing its elements as arguments:
+
+\begin{codeblock}
+\begin{lstlisting}
+[event-inbox <== :clear]
+(r2sys:send-signal '(:tick 7))
+[event-inbox <== :events]           ; => ((((:TICK 7)) NIL NIL))
+\end{lstlisting}
+\end{codeblock}
+
+The parameter list now has one element, itself a list. Similarly,
+\code{(r2sys:send-signal)} sends an event with an empty parameter list,
+while \code{(r2sys:send-signal nil)} sends one with parameter list
+\code{(nil)}. Neither call means ``disable events.''
+
+\paragraph{Explore the single pending-request slot.}
+The other interface is a \emph{host Lisp variable},
+\code{r2sys:*signal-request*}. It is distinct from a variable stored in
+an ABCL environment. An ABCL assignment such as
+\code{[r2sys:*signal-request* := value]} would not be the host-side
+write this interface requires. The teaching file supplies small host
+functions to make that boundary explicit:
+
+\wholelisting[firstline=11,lastline=17]{tutorial/examples/14-host-events.abclr2}
+
+These function bodies run in host Lisp. Their \code{setf} writes the
+actual host variable; \code{demo-event-slot} reads it. They are teaching
+helpers, not additional built-in ABCL/R2 operations.
+In the same fresh session, first check that the slot is empty:
+
+\begin{codeblock}
+\begin{lstlisting}
+(demo-event-slot)                  ; => NIL
+[event-inbox <== :clear]
+(demo-post-event '(:tick 7))
+[event-inbox <== :events]           ; => ((((:TICK 7)) NIL NIL))
+(demo-event-slot)                  ; => NIL: consumed by the runtime
+\end{lstlisting}
+\end{codeblock}
+
+A non-nil slot value becomes \emph{one} argument following \code{:signal}.
+A list stored there is not spliced into multiple arguments.
+The original polling function makes this explicit:
+
+\wholelisting[firstline=57,lastline=61]{src/signal.lsp}
+
+It saves the value, clears the slot, and forwards \code{(:signal value)}.
+The scheduler calls this function at the top of its dispatch loop in
+\filepath{src/process.lsp}. The slot is not a background service that
+keeps an otherwise idle interpreter polling, and its check does not
+interrupt a host Lisp computation halfway through execution.
+
+Two writes before that polling point do not create two pending events:
+
+\begin{codeblock}
+\begin{lstlisting}
+[event-inbox <== :clear]
+(demo-replace-event :first :second)
+[event-inbox <== :events]           ; => (((:SECOND) NIL NIL))
+\end{lstlisting}
+\end{codeblock}
+
+Both writes happen inside one host function, with no ABCL scheduler
+step between them. Only the last value remains to be polled. This
+demonstrates overwrite, not queueing or reliable event aggregation.
+Writing \code{nil} means no pending request; use
+\code{(r2sys:send-signal nil)} if you actually need an event whose
+argument is \code{nil}. These helpers assume an isolated fresh session;
+do not overwrite a pending request owned by another event producer.
+
+\paragraph{Disable delivery, then restore the saved handler.}
+The handler binding controls both interfaces:
+
+\begin{codeblock}
+\begin{lstlisting}
+[event-inbox <== :clear]
+[*signal-handler* := nil]
+(r2sys:send-signal :dropped)
+(demo-post-event :also-dropped)
+(demo-event-slot)                  ; => NIL after polling
+[*signal-handler* := event-inbox]
+[event-inbox <== :events]           ; => NIL: no replay
+[*signal-handler* := saved-event-handler]
+(eq *signal-handler* saved-event-handler) ; => T
+\end{lstlisting}
+\end{codeblock}
+
+Disabling delivery does not buffer notifications for later. A polled
+slot value is cleared even when no handler is installed. Conversely,
+changing the handler binding is not a cancellation of messages already
+sent to a previous handler. Always restore the object you saved, rather
+than assuming that the default handler is still the desired one.
+The normal default handler prints an ignored-signal diagnostic; ``ignored''
+does not necessarily mean silent.
+
+No step in this exercise enables keyboard interrupts or timer delivery.
+The historical keyboard-interrupt wrapper in \filepath{src/signal.lsp}
+contains host-specific branches; its fallback simply executes its body.
+Do not infer an SBCL operating-system hook from the presence of this API.
+Nor is this an Express-message experiment: the original Interrupt and
+Express examples have their own reflective execution protocols.
+
+\paragraph{Evidence and exercise.}
+Run \code{make -C tutorial host-events-check}. Twenty-five probes in two
+fresh processes check handler preservation, direct argument shapes,
+nil sender/reply fields, slot consumption and overwrite, disabled delivery,
+absence of replay, and restoration. Inputs, copied teaching source and
+transcripts remain in \filepath{build/host-event-tests/}. Tests install
+no operating-system callbacks and modify no runtime or original sources.
+
+Why does a list-valued slot notification differ from
+\code{(r2sys:send-signal :tick 7)}? \emph{Answer:} The slot carries one
+value; the function accepts several arguments. Why is a zero-valued
+slot request still delivered? \emph{Answer:} Only \code{nil} is false
+in Lisp; zero is non-nil. Why should the signal handler not rely on
+\code{!} to acknowledge the host? \emph{Answer:} The notification has
+no application reply destination. Define a separate acknowledgment
+protocol if your application needs one.

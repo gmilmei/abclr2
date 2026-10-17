@@ -1,0 +1,29 @@
+(defun report-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&REPORT-PASS ~A~%" name)
+  (error "REPORT-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/report-tests/13-report" :use-source t)
+(report report-subject)
+(report-check "new-identity" (eq report-subject report-original) nil)
+[instrumented := report-subject]
+(report-check "registry" (cdr (assoc report-subject *reporting-objects*)) report-original)
+[[meta report-subject] <= [:set-reporter report-recorder]]
+(report-check "echo" [report-subject <== [:echo 7]] 7)
+[events := [report-recorder <== :events]]
+(format t "~&REPORT-EVENTS ~S~%" events)
+(report-check "types" (mapcar #'second events) '(:message :begin :end))
+(report-check "meta-identity" (mapcar #'first events) (list [meta report-subject] [meta report-subject] [meta report-subject]))
+(report-check "payload" (mapcar #'(lambda (e) (first (third e))) events) '((:echo 7) (:echo 7) (:echo 7)))
+(report-check "same-triple" (mapcar #'third events) (make-list 3 :initial-element (third (first events))))
+[report-recorder <== :reset]
+(report-check "old-alias-result" [report-original <== [:twice 6]] 12)
+(report-check "old-alias-unreported" [report-recorder <== :events] nil)
+(noreport report-subject)
+(report-check "restored" report-subject report-original)
+(report-check "registry-removed" (assoc instrumented *reporting-objects*) nil)
+(report-check "copy-alias-still-works" [instrumented <== [:echo 8]] 8)
+(report-check "copy-still-reports" (mapcar #'second [report-recorder <== :events]) '(:message :begin :end))
+(noreport report-subject)
+(report-check "disable-again" report-subject report-original)
+(format t "~&REPORT-END~%")
+:q

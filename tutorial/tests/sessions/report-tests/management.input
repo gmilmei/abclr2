@@ -1,0 +1,21 @@
+(defun report-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&REPORT-PASS ~A~%" name)
+  (error "REPORT-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/report-tests/13-report" :use-source t)
+(report report-subject :message nil :begin nil :end nil)
+[first-copy := report-subject]
+(report report-subject :message nil :begin nil :end nil)
+[second-copy := report-subject]
+(report-check "second-identity" (eq second-copy first-copy) nil)
+(report-check "registry-depth" (length *reporting-objects*) 2)
+(noreport report-subject)
+(report-check "restore-one-copy" report-subject first-copy)
+(report-check "registry-after-one" (length *reporting-objects*) 1)
+(noreport report-subject)
+(report-check "restore-original" report-subject report-original)
+(report-check "registry-empty" *reporting-objects* nil)
+(report-check "retained-copy-result" [second-copy <== [:twice 5]] 10)
+(report-check "original-result" [report-subject <== [:twice 6]] 12)
+(format t "~&REPORT-END~%")
+:q

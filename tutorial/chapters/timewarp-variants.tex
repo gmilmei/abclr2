@@ -1,0 +1,117 @@
+\subsubsection{NR and NS: Replacing the Evaluator, Not Just Its Queue}
+\label{sec:tw-variants}
+
+The original \code{NR} and \code{NS} controllers in
+\filepath{tw-wash1.abclr2} explore different implementations of the
+Time Warp evaluator. They are not additional names for the priority
+and FIFO policies already compared by \code{starter}.
+The latter two replace the \emph{queue} of one schedulable evaluator;
+NR and NS install entirely new evaluator objects.
+
+\begin{longtable}{L{0.15\textwidth}L{0.36\textwidth}L{0.39\textwidth}}
+\textbf{Variant} & \textbf{Evaluator's metaobject} & \textbf{Meaning of the change}\\\hline
+\endhead
+Standard & Created by \code{TW-meta-eval-gen}. & Its evaluation-request
+queue can be selected as Lowest-LVT-first or FIFO.\\
+NR & Explicit \code{non-reifying-meta}. & Evaluation requests use direct,
+non-reifying handlers instead of the custom scheduling metaobject.\\
+NS & Default ordinary metaobject. & Removes the custom Time Warp
+evaluation-request scheduler, but keeps ordinary object dispatch.\\
+\end{longtable}
+
+All three evaluator definitions retain a local virtual-time cache and
+the extended \code{Outputs}/\code{LVT} context. All are used with
+\code{TW-meta-gen} for simulation objects, so selecting NR does not
+remove those objects' rollback histories. ``No scheduling'' in NS
+does not mean that the runtime stops scheduling processes or ignores
+simulation event times. It refers to the omitted customized evaluator
+scheduling layer; ordinary queues and the undoable event queue remain.
+
+The group selectors show the replacement directly:
+
+\wholelisting[firstline=22,lastline=31]{examples/time-warp/tw-group.abclr2}
+
+Each creates a fresh evaluator and assigns the group's \code{evaluator}
+binding. Unlike \code{:change-scheduler}, these handlers do not transfer
+the old evaluator's pending request queue. Nor do they rewrite the
+\code{evaluator} binding held by an existing simulation metaobject.
+The checks create an object before switching and another afterwards:
+the former retains the old evaluator, the latter captures the new one.
+This is why the original NR/NS controller switches before
+\code{starter-1} creates its attendant and washers. A group's configuration
+is a creation policy, not necessarily a live broadcast to all its members.
+Use separate fresh sessions for these experiments; restoring the group's
+standard evaluator does not retrofit older simulation objects.
+
+\paragraph{Read the controller's result protocol carefully.}
+Here is NR's original controller:
+
+\wholelisting[firstline=127,lastline=142]{examples/time-warp/tw-wash1.abclr2}
+
+It selects the new evaluator, resets the rollback monitor, and waits on
+the familiar \code{starter-1} simulation. If that request completes,
+it prints the result, reads the rollback counter, and replies
+\code{[:fifo [:rollback count]]}. NS follows the same structure but sends
+\code{:no-schedule-eval}. Both reuse the historical \code{:fifo} result
+tag, even though neither installs \code{normal-queue-gen} here. The tag
+therefore cannot identify the selected evaluator architecture.
+The expression-counter reset/query and \code{:exps} result fields are
+commented out. The custom counter belongs to \code{TW-meta-eval}; an
+ordinary or non-reifying evaluator metaobject does not acquire its
+\code{:count} handler merely because the group has that query method.
+
+The original entry points, after loading \code{tw-load} in a scratch
+directory, are:
+
+\begin{codeblock}
+\begin{lstlisting}
+; Use a fresh session for each variant.
+[NR <== [:start [3 4 6] 3]]
+; In another fresh session:
+[NS <== [:start [3 4 6] 3]]
+\end{lstlisting}
+\end{codeblock}
+
+Both complete this small case. Use the returned controller result to
+identify completion; printed car assignments alone are not a join.
+
+\paragraph{Follow the evaluator's representations.}
+The translator represents a simple literal such as \code{:fin} as
+\code{[:self-evaluate function]}, where the zero-argument function
+returns the literal. Each evaluator invokes that function with
+\code{funcall}; a function-valued payload is returned as data.
+The standard evaluator shows the protocol directly:
+
+\wholelisting[firstline=43,lastline=44]{examples/time-warp/tw-eval.abclr2}
+
+The \code{[:script scriptObject]} case delegates to
+\code{call-script-body}, which accepts internal scripts, object-level
+\code{:exec}, or compiled functions. Trace the representation before
+deciding which case handles a request.
+
+\paragraph{What the variant checks establish.}
+Run \code{make -C tutorial timewarp-variants-check}. Fifteen probes per
+variant check a fresh evaluator identity, old/new objects' captured
+evaluators, the literal's returned representation and payload,
+a synthetic five-argument compiled body that replies 42, and
+\code{LVT} lookup at 7. The compiled-body probe exercises
+\code{:compiled}, whereas the literal probe exercises
+\code{:self-evaluate}; one working case does not certify the other.
+Further checks cover numbers, nil, symbols, lists, function-valued payloads,
+single invocation of an initializer, and an application script returning 42.
+
+Two car-wash sessions add four checks each: controller result shape,
+historical \code{:fifo} tag, and a nonnegative rollback count. Transcripts
+also require the \code{:fin} result and all three expected car assignments.
+The 53 checks cover these evaluator and application protocols.
+Inputs and transcripts stay in \filepath{build/timewarp-variants/}.
+Use small runs to understand the control flow before exploring
+additional cancellation orders or larger simulations.
+
+\paragraph{Check your understanding.}
+Does NR eliminate application-state rollback? No; simulation objects
+still use the Time Warp metaobject generator. Does NS mean no queues?
+No; it omits a particular scheduling layer. Does a returned \code{:fifo}
+tag prove FIFO evaluator scheduling? No; the old controllers reuse that
+tag. Can a new group evaluator fix an already created object's evaluator?
+Not through these selectors: existing metaobjects retain their captured evaluator.

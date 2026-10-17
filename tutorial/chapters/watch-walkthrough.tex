@@ -1,0 +1,216 @@
+\subsection{Watch: Observe Sends without Replacing the Application}
+\label{sec:watch}
+
+The original \filepath{lib/watch.abclr2} is a practical debugging aid.
+It wraps an evaluator, reports message-send requests, then forwards them
+to the original evaluator. It does not copy the application object when
+you use \code{watch}. In particular, it can observe an ordinary stateful
+object without invoking the state-copying path discussed in
+Section~\ref{sec:copy}.
+
+The key distinction is \emph{outgoing sends}, not incoming requests.
+Watching a caller reveals the requests it sends and the replies it sends
+onward. It does not show every arrival at that caller, every operation
+inside the receiver, or every host Lisp computation. The separate
+\code{report} library observes a different boundary: message arrival and
+script execution through a replacement metaobject.
+
+\subsubsection{Start with One Sender}
+
+The supplemental \filepath{tutorial/examples/12-watch.abclr2} defines
+an echo target and a driver with now-, past-, and future-type sends:
+
+\wholelisting[firstline=5,lastline=14]{tutorial/examples/12-watch.abclr2}
+
+The file loads \code{watch} and \code{future}; the latter is needed for
+this driver's future request, not for the basic watch facility.
+Run this in a fresh session:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "tutorial/examples/12-watch" :use-source t)
+(watch watch-driver)
+[watch-driver <== [:now 7]]             ; => 7, plus trace output
+(nowatch watch-driver)
+[watch-driver <== [:now 8]]             ; => 8, no watch trace
+\end{lstlisting}
+\end{codeblock}
+
+These are the original library's public macros. Common Lisp reader case
+folding makes \code{noWatch} and \code{nowatch} the same macro name.
+The trace contains a send to \code{watch-target} with value 7 and a send
+of the reply onward to the driver's caller. The top-level request
+\code{[:now 7]} itself was sent by the interactive evaluator, not by the
+watched driver, so it is not the driver's outgoing request being reported.
+
+The default reporter prints lines shaped like
+\code{[target <== payload from sender]}. Object serial numbers are not
+stable expected output. For a past-type send with a reply destination it
+also prints \code{@ reply}. Its historical future display uses
+\code{<<=}; that is a trace label, not a replacement for this book's
+\code{[target <= payload \$ future]} source syntax.
+Trace lines are asynchronous reports, not acknowledgments that a
+receiver has finished processing the message.
+
+\subsubsection{Read the Evaluator Wrapper}
+
+Here is the complete original generator:
+
+\wholelisting[firstline=37,lastline=55]{lib/watch.abclr2}
+
+The dotted patterns bind the rest of the send representation as
+\code{Arg}, and the remaining evaluation context as \code{Context}.
+For each of the three send types, the wrapper sends the reporter four
+fields: the type tag, evaluated send arguments, evaluation context, and
+continuation \code{C}. It then forwards the original evaluator request
+with the same continuation. The application reply path is not redirected
+through the reporter.
+
+For the standard send protocol, \code{Context} is
+\code{(Env Id Gid Eval)}. Its second element is the sender's meta-level
+identity; \code{[den Id]} denotes the application sender. This is how
+the default formatter obtains the displayed sender. The wrapper also
+answers \code{:original-evaluator}, which is useful for checking or
+explicitly undoing one layer of instrumentation.
+
+The catch-all forwards other evaluator requests unchanged. This is not
+an instruction-by-instruction profiler, and operations performed by host
+Lisp or a non-reifying script need not cross these evaluator patterns.
+Observation adds messages and work of its own; do not infer uninstrumented
+scheduling or timing from a watched run.
+
+\subsubsection{Collect Structured Events Instead of Printed Names}
+
+The macros select \code{default-watch-reporter}. To supply another
+reporter, use the original manager's explicit protocol. The teaching
+file includes this small recording object:
+
+\wholelisting[firstline=16,lastline=22]{tutorial/examples/12-watch.abclr2}
+
+Each event retains the same four fields the wrapper sends. The helper
+\code{watch-target-events} filters those records by target identity;
+it avoids comparing unstable printed names. In a fresh session after
+loading the teaching file:
+
+\begin{codeblock}
+\begin{lstlisting}
+[watch-manager <= [:watch-object watch-driver watch-recorder]]
+[watch-driver <== [:now 7]]
+[watch-driver <== [:past 8]]
+[watch-driver <== [:future 9]]
+[events := (watch-target-events
+             [watch-recorder <== :events] watch-target)]
+(mapcar #'first events)
+; => (:SEND-NOW :SEND-PAST :SEND-FUTURE)
+(nowatch watch-driver)
+\end{lstlisting}
+\end{codeblock}
+
+There are additional events for future creation, future consumption, and
+the driver's replies. Filtering for \code{watch-target} isolates the
+three intended sends. The driver returns 7, \code{:submitted}, and 9:
+the past-type result still acknowledges submission, not target completion.
+
+Manager commands are past-type requests. Their handlers do not promise
+application replies: do not replace \code{<=} with \code{<==} merely
+to wait for installation. The bounded sessions check observable evaluator
+identities and finite traces, not a general synchronization protocol.
+Keep a recording reporter outside the watched sender's evaluator policy,
+and bound or clear its retained events in longer experiments.
+
+For printed output with filtering, the original \code{reporter-gen}
+accepts two host Lisp functions. The predicate decides whether to print;
+the formatter returns a string. For example:
+
+\begin{codeblock}
+\begin{lstlisting}
+[filtered := [reporter-gen <== [:new
+ :pred #'(lambda (type args context cont) (eq type :send-now))
+ :format #'(lambda (type args context cont)
+             (format nil "WATCH-NOW ~S" (second args)))]]]
+[watch-manager <= [:watch-object watch-driver filtered]]
+[watch-driver <== [:now :probe]]
+(nowatch watch-driver)
+\end{lstlisting}
+\end{codeblock}
+
+The formatter sees evaluated arguments, not source text. These functions
+are host lambdas: do not place ABCL/R2 sends in their bodies or assume they
+can capture arbitrary surrounding ABCL bindings. Use ordinary Lisp
+parameters or explicit Lisp closure construction as in the earlier
+lambda-boundary discussion.
+
+\subsubsection{Choose the Scope and Understand Restoration}
+
+\begin{longtable}{L{0.33\textwidth}L{0.57\textwidth}}
+\textbf{Public operation} & \textbf{Scope of the change}\\\hline
+\code{(watch obj)} / \code{(nowatch obj)} & Replaces/restores this object's
+evaluator through its metaobject. Requires compatible reflective operations.\\
+\code{(watch-group g)} / \code{(nowatch-group g)} & Changes the group's
+evaluator for subsequent object creation; does not rewrite existing objects.\\
+\code{(watch-toplevel)} / \code{(nowatch-toplevel)} & Changes/restores
+\code{*eval*}, the interactive evaluator; not every object's evaluator.\\
+\end{longtable}
+
+The manager saves the previous evaluator before installing the wrapper.
+For an object it sends \code{[:set-evaluator wrapper]} to the metaobject;
+for a group it sends \code{[:replace-evaluator wrapper]} to the group
+manager. The top-level operation assigns \code{*eval*}. These are three
+different places to install the same kind of wrapper.
+
+In a group experiment, create one sender before \code{watch-group} and
+another after it. The first retains its original evaluator; the second
+captures the wrapper. After \code{nowatch-group}, a third sender gets the
+restored group policy, but the second still holds its wrapper. Group
+restoration is not a broadcast repair of all existing objects.
+
+There is also an original, preconfigured \code{watching} group. An object
+defined with \code{(group watching)} uses its tracing evaluator from
+creation. Alternatively, after loading \code{copy}, the library suggests
+\code{(copy name :group watching)}. That rebinds \code{name} to a
+\emph{different object}; it is not equivalent to \code{(watch name)}.
+All the queue-sharing and local-state-copy restrictions of
+Section~\ref{sec:copy} still apply. The checked copy example has no local
+state entries and does not establish general copying compatibility.
+
+Wrappers obtained from a group's creation policy are not entries in the
+manager's watched-object list. Thus \code{(nowatch obj)} alone cannot
+remove such a preconfigured wrapper. For a known single wrapper, an
+explicit object-level restoration is:
+
+\begin{codeblock}
+\begin{lstlisting}
+[wrapper := [[meta obj] <== :evaluator]]
+[underlying := [wrapper <== :original-evaluator]]
+[[meta obj] <= [:set-evaluator underlying]]
+\end{lstlisting}
+\end{codeblock}
+
+Use this only when you know that the current evaluator implements this
+watch-wrapper protocol. It removes one layer from that object, not the
+group policy. Do not replace an unrelated custom evaluator blindly.
+
+\paragraph{Avoid repeated installation.}
+The original manager does not make \code{watch} idempotent. Calling it
+twice adds two wrappers. On disabling the object, it restores the most
+recent saved evaluator but deletes all saved entries for that object.
+A second \code{nowatch} therefore leaves the inner wrapper installed.
+The tests observe this boundary and explicitly restore the evaluator
+saved before the experiment. Pair one installation with one restoration;
+do not rely on repeated object, group, or top-level requests behaving as
+a balanced instrumentation stack.
+
+\paragraph{Evidence and exercise.}
+Run \code{make -C tutorial watch-check}. Forty-one probes check
+now/past/future results and event payloads, sender context, default and
+filtered reporters, restoration, group creation policy, top-level control,
+the preconfigured group, stateful watching without copying, an
+empty-local-state watched copy, and repeated
+installation boundaries. Libraries are copied unchanged; transcripts and
+generated files stay in \filepath{build/watch-tests/}.
+
+Why watch the driver rather than just the echo target? The driver issues
+the application requests of interest. Why does turning off the group not
+silence every existing sender? Each already has an evaluator reference.
+As an exercise, record only \code{:send-past} events and explain which
+are application requests and which are replies forwarded by the driver.

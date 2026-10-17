@@ -1,0 +1,44 @@
+;; Host helpers operate only on the loading suite's scratch artifacts.
+(defun loading-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&LOADING-PASS ~A~%" name)
+  (error "LOADING-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(defun loading-path (base kind)
+ (make-pathname :type (ecase kind
+                       (:lisp "lsp")
+                       (:fasl r2sys::fasl-file-type))
+                :defaults (pathname base)))
+
+(defun loading-mark-translation (from to old new)
+ ;; Retain the actual translated loader/continuation protocol; change only
+ ;; one test marker in a generated translation, never the ABCL source.
+ (let* ((data (with-open-file (in from)
+               (let ((text (make-string (file-length in))))
+                (read-sequence text in) text)))
+        (at (search old data)))
+  (assert at)
+  (assert (not (search old data :start2 (+ at (length old)))))
+  (with-open-file (out to :direction :output :if-exists :supersede)
+   (write-string data out :end at)
+   (write-string new out)
+   (write-string data out :start (+ at (length old))))))
+
+(defun loading-build-marked-fasl (base)
+ (let ((temporary (make-pathname :name "marked-cache" :type "lsp"
+                                 :defaults (pathname base))))
+  (loading-mark-translation (loading-path base :lisp) temporary
+                            ":CACHED-LISP" ":CACHED-FASL")
+  (sleep 1.1)
+  (compile-file temporary :output-file (loading-path base :fasl)
+                          :verbose nil :print nil)))
+
+(defun loading-inc-defaults ()
+ (multiple-value-list (r2sys::parse-inc-parameter '("demo") "test")))
+
+(defun loading-missing-source-error (base)
+ (with-open-file (out (loading-path base :lisp)
+                      :direction :output :if-exists :supersede)
+  (write-line "; Cached Lisp alone must not satisfy INC's source check." out))
+ (handler-case (progn (r2sys::inc-file base :verbose nil) nil)
+  (error () t)))

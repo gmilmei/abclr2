@@ -1,0 +1,228 @@
+\label{sec:loading}
+
+Loading a file is part of program execution in ABCL/R2. Its expressions
+run in an environment, using a group and evaluator; the same translated
+file can therefore behave differently when loaded by different callers.
+First separate preparing a file from executing it:
+
+\par\medskip\noindent
+\begin{minipage}{\linewidth}
+\begin{tabular}{L{0.32\textwidth}L{0.58\textwidth}}
+\textbf{Expression} & \textbf{Purpose}\\\hline
+\code{(inc "name")} & Translate if needed, then load and evaluate in the
+caller's environment, group, and evaluator context.\\
+\code{(comp "name")} & Translate and compile if needed; does not run the
+ordinary ABCL application expressions.\\
+\code{(inc-lib "name")} & Load and evaluate in the global environment,
+top-level group, and current top-level evaluator.\\
+\code{(require 'name)} & Search for and load an unregistered module through
+\code{inc-lib}.\\
+\code{(provide 'name)} & Record a module name in \code{*modules*}; does not
+load a file or validate its definitions.\\
+\code{(pwd)} / \code{(cd "dir")} & Historical directory commands;
+not implemented for SBCL in this port.\\
+\code{:q} / \code{:reset} & Quit the interpreter or reset the system.\\
+\end{tabular}
+\end{minipage}\par\medskip
+
+Use a file's \emph{base pathname}, without its type:
+\code{(inc "demo" :use-source t)} loads \filepath{demo.abclr2}.
+Translation writes a neighboring \filepath{demo.lsp}; compilation writes
+a host-specific compiled file, normally \filepath{demo.fasl} on SBCL.
+Do not pass the \code{.abclr2} type as part of the base name: the loader
+derives all three paths from that argument.
+The directory must permit writing the generated files. Use scratch
+copies when exploring the original examples, as the checks do.
+
+Relative paths are resolved against the process's current directory,
+not automatically against the containing source file's directory.
+Start the interpreter in the required directory or use absolute paths.
+The host-specific implementations in \filepath{src/topfunc.lsp} have
+no SBCL branch for changing that directory. Calling \code{inc-lib} does
+not make its relative path relative to \filepath{lib/}.
+
+\subsection{Options and File Selection}
+
+The user's guide specifies the public options~\cite{guide}; the active
+implementations are in \filepath{src/inc.lsp} and \filepath{src/user.lsp}.
+The defaults are:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{longtable}{L{0.20\textwidth}L{0.15\textwidth}L{0.55\textwidth}}
+\textbf{Option} & \textbf{Default} & \textbf{Accepted by and effect}\\\hline
+\code{:use-source} & \code{nil} & \code{inc}, \code{inc-lib}, \code{require},
+\code{comp}. Non-nil forces translation from ABCL source. On a load it
+also bypasses the compiled-file branch; on \code{comp} it forces compilation.\\
+\code{:verbose} & \code{t} & All four commands. Controls translation and
+the passed-through load/compile verbosity, not every warning or diagnostic.\\
+\code{:compile} & \code{nil} & \code{inc}, \code{inc-lib}, \code{require}.
+Non-nil runs \code{comp} before loading. \code{comp} itself has no
+\code{:compile} option.\\
+\end{longtable}
+\end{minipage}
+
+\code{inc} and \code{inc-lib} can prompt for a filename when it is
+omitted. \code{comp} requires a name, and \code{require} requires a
+module name. In scripts and reproducible sessions, always supply it
+explicitly. \code{provide} takes only its module-name argument.
+
+\paragraph{Follow the three-stage choice.}
+For an explicit \code{inc} or \code{inc-lib}, read the loader as follows:
+
+\begin{enumerate}
+  \item If \code{:compile} is true, first perform the compilation command
+        with the selected \code{:use-source} and \code{:verbose} values.
+  \item Require the \code{.abclr2} source to exist. Translate it if forced,
+        if there is no \code{.lsp}, or if the source is newer than the
+        translation. Even a cached compiled file does not remove this
+        source-file requirement.
+  \item Load the compiled file only when \code{:use-source} is false,
+        that file exists, and it is \emph{strictly newer} than the Lisp
+        translation. Otherwise load the translation. Execute its
+        expressions in the selected loading context.
+\end{enumerate}
+
+\code{comp} uses the same translation test, then compiles if forced,
+if the compiled file is absent, or if the translation is newer than
+the compiled file. Otherwise it reports that the compiled file is up
+to date. It does not execute an ordinary ABCL object definition or
+application send merely by compiling it. Translation still processes
+macros; do not equate compilation with an absence of all host-side effects.
+
+Timestamp comparisons are not content comparisons. Equal timestamps
+do not satisfy ``strictly newer'' in the load test, so loading may select
+the Lisp file even after compilation. The combination
+\code{:compile t :use-source t} compiles first but still follows the
+forced-source load branch. Compilation is not a promise that this
+particular load executes the FASL. This is usually a performance/file
+selection distinction, not a different intended program result.
+
+For day-to-day editing, prefer the explicit source path:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "demo" :use-source t)          ; retranslate, load, and run
+(comp "demo" :use-source t)         ; prepare compiled output; do not run
+(inc "demo" :compile t)             ; update as needed, then load and run
+\end{lstlisting}
+\end{codeblock}
+
+These are three independent commands, not a required sequence. Do not
+repeat a loading command solely because a translation was cached:
+\code{inc} and \code{inc-lib} execute the file's expressions on each call,
+including assignments, object creation, and application sends.
+\code{:verbose nil} can reduce output while keeping those effects.
+
+\subsection{Execution Context and Module Loading}
+
+\paragraph{An included fragment sees its caller's environment.}
+The supplemental \filepath{tutorial/examples/15-loaded-fragment.abclr2}
+contains just these two expressions:
+
+\wholelisting{tutorial/examples/15-loaded-fragment.abclr2}
+
+It deliberately depends on \code{load-token}; it is a fragment to load
+in a prepared environment, not a self-contained program. Try:
+
+\begin{codeblock}
+\begin{lstlisting}
+[load-token := :global]
+[loaded-value := :unchanged]
+[loaded-object := nil]
+(let ((load-token :local) (loaded-value nil) (loaded-object nil))
+  (inc "tutorial/examples/15-loaded-fragment" :use-source t)
+  (list loaded-value [loaded-object <== :value]))
+; => (:LOCAL :LOCAL)
+loaded-value                       ; => :UNCHANGED
+\end{lstlisting}
+\end{codeblock}
+
+The fragment updates the local \code{loaded-value}, binds its new object
+locally, and that object's script retains the local \code{load-token}.
+The same fragment loaded by \code{inc-lib} instead uses the global
+environment:
+
+\begin{codeblock}
+\begin{lstlisting}
+(let ((load-token :local) (loaded-value nil) (loaded-object nil))
+  (inc-lib "tutorial/examples/15-loaded-fragment" :use-source t)
+  (list loaded-value loaded-object)) ; => (NIL NIL)
+loaded-value                        ; => :GLOBAL
+[loaded-object <== :value]           ; => :GLOBAL
+\end{lstlisting}
+\end{codeblock}
+
+Group context matters too. Ordinary objects created by \code{inc} inside
+a client's script inherit that caller's group; \code{inc-lib} evaluates
+the file in the top-level group using the current \code{*eval*}.
+An explicit \code{group} or \code{meta-gen} in the loaded definitions
+can still choose different machinery. Loading a library does not itself
+replace existing objects' evaluator references or compose its policy
+with every custom group. This is why the original examples' setup and
+loading order must be read as part of their protocols.
+
+\paragraph{Require a module name, not an arbitrary file path.}
+\code{*library-directories*} contains the directories searched by the
+ABCL/R2 \code{require} macro. It selects the first directory containing
+the named \code{.abclr2} source, then uses \code{inc-lib} to load it.
+For example, the supplied library path supports \code{(require 'future)}.
+Symbols are converted to lowercase names. String arguments retain their
+case during search; prefer symbols or explicitly lowercase strings.
+\code{provide} normalizes both symbols and strings to lowercase.
+
+For your own library directory, use a directory pathname, save the
+previous search path, and restore it after the experiment:
+
+\begin{codeblock}
+\begin{lstlisting}
+[saved-library-directories := *library-directories*]
+[*library-directories* :=
+  (cons #P"/absolute/path/to/my-libraries/" *library-directories*)]
+; (require 'my-module) ; loads my-module.abclr2 from the search path
+[*library-directories* := saved-library-directories]
+\end{lstlisting}
+\end{codeblock}
+
+Here \code{\#P"..."} is Common Lisp's pathname literal; the example
+directory is a placeholder to replace, not a required installation path.
+Putting it first makes its source win over later directories. A typical
+module includes \code{(provide 'my-module)} to register its name in
+\code{*modules*}. \code{require} does not register a module automatically:
+without \code{provide}, a second require can execute the file again.
+
+Once a name is registered, \code{require} skips loading entirely, even
+with \code{:use-source t} or \code{:compile t}. To intentionally reload
+a known file while editing, use its explicit base pathname with
+\code{inc-lib}. Be aware that this reexecutes definitions and effects;
+it is not an atomic replacement of every reference to earlier objects.
+If \code{provide} ran before a later failure in a module, its recorded
+name alone is not evidence that all initialization succeeded.
+
+A missing module also returns \code{nil} without loading in this
+implementation. That return value is not a success certificate or a
+reliable distinction between ``already registered'' and ``not found.''
+Inspect the transcript, expected definitions, and search path. Direct
+\code{inc} and \code{inc-lib} instead signal an error for missing source.
+
+Included libraries are \code{future}, \code{multicast}, \code{express},
+\code{heavy-meta}, \code{copy}, \code{watch}, and \code{report}.
+Their walkthroughs explain setup and use. Historical alternatives with
+shared feature or generator names require separate fresh sessions, not
+an assumption that \code{require} can distinguish filenames by itself.
+
+\paragraph{Evidence and check your understanding.}
+Run \code{make -C tutorial loading-check}. Thirty-five probes check
+option defaults, compile-versus-load effects, independently marked Lisp
+and FASL cache selection, forced source, missing-source rejection,
+module registration/reload/search, and local versus global environment,
+group, and evaluator behavior. Tests modify only generated cache files
+in \filepath{build/loading-tests/}; original sources remain unchanged.
+The small fragment above is copied there before testing.
+
+Why might changing a module and calling \code{require} show no change?
+\emph{Answer:} The registered name bypasses the load, including its
+source option. Why can \code{comp} create output without creating the
+application object? \emph{Answer:} Preparation does not execute its
+ordinary ABCL expressions. Why does a file see a local value with
+\code{inc} but the global value with \code{inc-lib}?
+\emph{Answer:} Loading selects an execution environment, not just a file.

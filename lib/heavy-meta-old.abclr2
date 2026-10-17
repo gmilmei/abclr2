@@ -1,0 +1,125 @@
+;;; -*- Mode:abcl1 -*-
+;;; heavy-meta.abclr2
+;;; Metaobject definition for objects with WHERE forms.
+;;; Jul. 24, 1992 by MASUHARA, H.
+
+(provide 'heavy-meta)
+
+;; The metaobject generator for objects with where-field scripts.
+;; The name of the following object must be equall to the value of
+;; variable "heavy-meta-name" which is defined in translate.lsp.
+[object heavy-meta
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new StateSpec LexEnv Scripts Eval GMgr] @ R
+       ;; Metaobject with WHERE form
+       [object heavy-metaobject
+	 (meta-gen non-reifying-meta)
+	 (state [queue := [queue-gen <== :new]]
+		[state := nil]
+		[scriptSet := scripts]
+		[evaluator := Eval]
+		[Group-manager := GMgr]
+		[mode := ':dormant]
+		[current-MRS := nil]	; current matching/executing message
+		[scripts-to-be-tested := nil]) ; scripts waiting for matching
+	 (script
+	  (=> [:message Message Reply Sender]
+	      [queue <= [:enq [Message Reply Sender]]]
+	      (when (eq mode ':dormant)
+		[mode := ':active]
+		[Me <= :begin]))
+	  ;; Start of script matching.
+	  (=> :begin
+	      [current-MRS := [queue <== :deq]]
+	      [scripts-to-be-tested := scriptSet]
+	      [Me <= :find-match])
+	  ;; Continuing script pattern matching.
+	  (=> :find-match
+	      (match [current-MRS scripts-to-be-tested]
+		;; Decode message & take first script
+		(is [[Message Reply Sender] [aScript . restScripts]]
+		    ;; advance waiting scripts pointer
+		    [scripts-to-be-tested := restScripts]
+		    (match [aScript <== [:match Message Reply Sender]]
+		      ;; success of pattern match
+		      (is [Bindings ScriptBody]
+			  [evaluator 
+			   <= [:do ScriptBody
+				   [env-gen <== [:new Bindings state]]
+			       Me Group-Manager evaluator]
+			   @ [cont _ [Me <= :end]]])
+		      ;; fail of pattern match
+		      (otherwise
+		       [Me <= :find-match])))
+		;; All scripts are failed. End of pattern matching.
+		(is [[Message Reply Sender] nil]
+		    (warn "~S cannot handle message ~S, ignores it."
+			  [den Me] Message)
+		    [Me <= :end])))
+	  ;; Notification of fail of the test for where field.
+	  ;; Following message pattern must be equall to the value of
+	  ;; variable "constraint-fail-message" which is defined in
+	  ;; "translate.lsp".
+	  (=> :constraint-fail
+	      [Me <= :find-match])
+	  ;; End of script execution.
+	  (=> :end
+	      (if (not [queue <== :empty?])
+		  [Me <= :begin]
+		  [mode := ':dormant]))
+	  ;; reflective operations
+	  (=> :state !state)
+	  (=> [:set-state s]
+	      [state := s])
+	  (=> :queue @ R
+	      [queue <= :listify @ R])
+	  (=> :dequeue @ R
+	      [queue <= :deq @ R])
+	  (=> [:enqueue item]
+	      [queue <= [:enq item]])
+	  (=> :scripts !scriptSet)
+	  (=> [:find-script Message]
+	      !(search-script Message nil nil scriptSet))
+	  (=> [:add-script new-script]
+	      [scriptSet := (cons new-script ScriptSet)])
+	  (=> [:remove-script Message]
+	      [scriptSet := (remove-script Message nil nil ScriptSet)])
+	  )]
+;; PORT-BEGIN: Set the known owner before initialization; NRM state remains opaque.
+;; PORT-ACTIVE
+       (setf (r2sys::object-data-gid [den heavy-metaobject]) GMgr)
+;; PORT-END
+       ;; initialize state variables
+       [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		  LexEnv heavy-metaobject GMgr Eval]
+	     @ [cont initValues
+		     [heavy-metaobject
+		      <= [:set-state
+			  [env-gen 
+			   <== [:new (pairlis (stateSpec-varNames stateSpec)
+					      initValues)
+				     LexEnv]]]]
+		     [R <= heavy-metaobject]]]))]
+
+#|
+;; Following codes are test for heavy-meta --- object with WHERE form.
+;; These are modified version of ones shown in ``ABCL/1 User's Guide.''
+
+[object counter
+  ;; (meta-gen heavy-meta) <-- attached automatically
+  (state [c := 0])
+  (script
+   ;; increment positive number only.
+   (=> [:add n] where (and (integerp n) (plusp n))
+       [c := (+ c n)])
+   (=> [:add _])			; ignored
+   (=> [:value]
+       !c)
+   (=> [:reset]
+       [c := 0]))]
+
+[counter <= [:add 123]]			; added
+[counter <= [:add -100]]		; ignored
+[counter <== [:value]]			; get 123
+|#

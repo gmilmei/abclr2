@@ -1,0 +1,10 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc-lib "@ROOT@/build/group-tests/lib/express" :use-source t)
+[group audit-group (meta-gen meta/express-gen)]
+[object audit-target (group audit-group) (state [born-group := [group-of Me]]) (script (=> :owner !Group) (=> :born !born-group))]
+(group-context :express [audit-target <== :owner] audit-group)
+(group-check-nrm :express audit-target audit-group [group-of meta/express-gen])
+(group-check :initializer-owner [audit-target <== :born] audit-group)
+(format t "~&GROUP-END~%")
+:q

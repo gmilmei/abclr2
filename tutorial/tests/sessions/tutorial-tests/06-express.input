@@ -1,0 +1,6 @@
+(inc "build/tutorial-tests/06-express" :use-source t)
+[express-controller <== :test]
+:q
+:q
+(format t "~&EXPRESS-BLOCKED-END~%")
+:q

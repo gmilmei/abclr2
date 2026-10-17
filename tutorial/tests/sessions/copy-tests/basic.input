@@ -1,0 +1,18 @@
+(defun copy-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&COPY-PASS ~A~%" name)
+  (error "COPY-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/copy-tests/11-copy" :use-source t)
+[clone := [copier <== [:copy copy-source]]]
+(copy-check "distinct-object" (eq clone copy-source) nil)
+(copy-check "distinct-metaobject" (eq [meta clone] [meta copy-source]) nil)
+(copy-check "empty-local-state" [[[meta clone] <== :state] <== :alist] nil)
+(copy-check "initial-lexical" [clone <== :value] 0)
+(copy-check "source-increment" [copy-source <== :increment] 1)
+(copy-check "shared-lexical" [clone <== :value] 1)
+(copy-check "clone-increment" [clone <== :increment] 2)
+(copy-check "source-sees-clone-effect" [copy-source <== :value] 2)
+(copy-check "scripts-reused" (eq (first [[meta clone] <== :scripts]) (first [[meta copy-source] <== :scripts])) t)
+(copy-check "state-spec-callable-value" (funcall (third (first (alist->stateSpec '((n . 7)))))) 7)
+(format t "~&COPY-END~%")
+:q

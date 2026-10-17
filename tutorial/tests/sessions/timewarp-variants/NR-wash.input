@@ -1,0 +1,12 @@
+(defun variant-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&VARIANT-PASS ~A~%" name)
+  (error "VARIANT-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "tw-load" :use-source t)
+[result := [NR <== [:start [3 4 6] 3]]]
+(variant-check "controller-tag" (first result) :fifo)
+(variant-check "controller-shape" (length result) 2)
+(variant-check "rollback-tag" (first (second result)) :rollback)
+(variant-check "rollback-count-valid" (let ((n (second (second result)))) (and (integerp n) (>= n 0))) t)
+(format t "~&VARIANT-END~%")
+:q

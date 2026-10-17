@@ -1,0 +1,9 @@
+(defun original-check (name actual expected)
+ (if (equal actual expected)
+   (format t "~&ORIGINAL-PASS ~A~%" name)
+   (error "ORIGINAL-FAIL ~A: got ~S expected ~S" name actual expected)))
+[*library-directories* := (list "@ROOT@/build/original-tests/lib/")]
+(inc "@ROOT@/build/original-tests/examples/misc/meta-meta" :use-source t)
+(original-check "twice" [twice <== 3] 6)
+(format t "~&ORIGINAL-END meta-meta~%")
+:q

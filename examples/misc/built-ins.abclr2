@@ -1,0 +1,88 @@
+;;; -*- Mode: ABCL1; Fred: Kanji -*-
+;;; built-ins.abclr2
+;;; Protocols for bulit-in objects.
+;;; Aug. 2,1992 by MASUHARA, H.
+
+;; An environment object. (non-global)
+[object env-gen
+ (script
+  (=> [:new alist lexEnv]
+      ![object env
+        (script
+         (=> [:value-of Name] @ R
+             (let ((p (assoc Name alist :test #'eq)))
+               (if p [R <= (cdr p)]
+                   [lexEnv <= [:value-of Name] @ R])))
+         (=> [:set Name Value] @ R
+             (let ((p (assoc Name alist :test #'eq)))
+               (if p
+                 (progn (setf (cdr p) Value)
+                        [R <= Value])
+                 [lexEnv <= [:set Name Value] @ R]])))
+         (=> [:boundp Name] @ R
+             (if (assoc Name alist :test #'eq)
+               [R <= t]
+               [lexEnv <= [:bound Name] @ R]))
+         (=> :lexEnv !lexEnv)
+         (=> :alist !alist))]))]
+
+;; Global environment object
+[object global-env
+ (state [alist := <initial-environment>])
+ (script
+  (=> [:value-of Nmae]
+      (let ((p (assoc Name alist :test #'eq)))
+        (if p !(cdr p)
+            (error "~S is not bound" Name))))
+  (=> [:set Name Value]
+      (let ((p (assoc Name alist :test #'eq)))
+        !(if p (setf (cdr p) Value)
+             (progn (warn "~S is bound to global" Name)
+                    (push (cons Name Vlaue) alist)
+                    Value))))
+  (=> [:boundp Name]
+      !(not (null (assoc Name alist :test #'eq))))
+  (=> :lexEnv !nil)
+  (=> :alist !alist))]
+
+;; A script object.
+[object aScript
+ (state [pattern := <pattern of the script>]
+        [compiled-expressions := ...])
+ (script
+  (=> [:match message reply sender]
+      (if <Pattern match>
+          ![<new bindings> [:script Me]] ; <new bindisgs> is alist
+          !nil))
+  (=> [:exec Env Id Gid Eval] @ C
+      [Eval <= [:do-progn compiled-expressions
+      			  Env Id Gid Eval] @ C])
+  (=> :pattern
+      ![<message-pattern> 
+        <reply-destination-var-name> ; nil if no reply-dest.
+        <sender-var-name>])          ; nil if no sender-var.
+  (=> :body
+      !compiled-expressions))]
+
+;; A queue object
+[object queue-gen
+ (script
+  (=> :new
+      ![object queue
+        (state [q := nil]
+               [waiters := nil])
+        (script
+         (=> :empty? !(null q))
+         (=> :deq @ R
+             (if (null q)
+               [waiters := (cons R waiters)]
+               (progn
+                 !(first (last q))
+                 [q := (nbutlast q)])))
+         (=> [:enq item]
+             (if (null waiters)
+               [q := (cons item q)]
+               (progn
+                 [(first (last waiters)) <= item]
+                 [waiters := (nbutlast waiters)]))))]))]
+  

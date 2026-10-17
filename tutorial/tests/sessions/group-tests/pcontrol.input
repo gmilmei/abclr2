@@ -1,0 +1,10 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc "start" :use-source t)
+[object audit-priority (group pControl) (priority 1) (state [born-group := [group-of Me]]) (script (=> :owner !Group) (=> :born !born-group))]
+(group-context :priority [audit-priority <== :owner] pControl)
+(group-check-nrm :priority-app audit-priority pControl [group-of priori-meta-gen])
+(group-check-nrm :priority-eval [pControl <== :evaluator] [group-of multi-eval-gen] [group-of PQ-meta-gen])
+(group-check :initializer-owner [audit-priority <== :born] pControl)
+(format t "~&GROUP-END~%")
+:q

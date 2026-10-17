@@ -1,0 +1,12 @@
+;;; Time Warp: a rollback counter
+;;; Feb. 18, 1992 by MASUHARA, H.
+
+[object monitor-gen
+  (script
+   (=> :new
+       ![object monitor
+	  (state [count := 0])
+	  (script
+	   (=> :rollback
+	       [count := (1+ count)])
+	   (=> :count !count))]))]

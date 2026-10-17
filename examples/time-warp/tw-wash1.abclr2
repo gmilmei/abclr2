@@ -1,0 +1,259 @@
+;; towards Time Warp with scheduling
+;; Feb. 17, 1992 by MASUHARA,H.
+
+[washer-loop-count := 10]
+
+[object washer-gen
+  (script
+   (=> [:new id service-time attendant]
+       ![object washer
+	  (group tw-group)
+	  (script
+	   (=> [:wash car]
+	       (format t "~&***Washer(~D) ~S start washing a car ~D from ~D"
+		       Me id car LVT)
+	       [Me <= [:loop washer-loop-count car]])
+	   (=> [:loop 0 car]
+	       [attendant
+		<= [:available Me] :VRT (+ service-time LVT)]
+	       (format t "~&***Washer(~D) ~S finished washing ~D at ~D"
+		       Me id car (+ service-time LVT)))
+	   ;; wash the car...
+	   (=> [:loop count car]
+	       [Me <= [:loop (1- count) car]]))]))]
+
+[object attendant-gen
+  (script
+   (=> :new
+       ![object attendant
+	  (group tw-group)
+	  (state
+	   [waiting-cars := nil]
+	   [waiting-washers := nil]
+	   [job-record := nil]
+	   [finished := nil]
+	   [num-washers := nil])
+	  (script
+	   (=> [:arrival car]
+	       (format t "~&---Car ~D arrives at ~D" car LVT)
+	       [waiting-cars := (append waiting-cars [[LVT car]])]
+	       [Me <= :deliver])
+	   (=> [:available washer]
+	       (format t "~&---Washer ~S available from ~D" 
+		       [washer-name <== [:name washer]]
+		       LVT)
+	       [waiting-washers :=  (append waiting-washers [[LVT washer]])]
+	       [Me <= :deliver])
+	   (=> :deliver
+	       (temporary time+car time+washer)
+	       #+COMMENT
+	       (format t "~&---At deliver:~
+                  ~&---cars=~S~
+                  ~&---washers=~S"
+		       waiting-cars
+		       [washer-name <== [:waiting-names waiting-washers]])
+	       (cond
+		 (finished
+		  #+COMMENT
+		  (format t "~&# of available washers=~D # of washers=~D"
+			  (length waiting-washers) num-washers)
+		  (if (= (length waiting-washers) num-washers)
+		      [starter-1
+		       <= [:fin [washer-name <== [:result job-record]]]]
+		      (format t "~&Waiting all washers will be available")))
+		 ((and waiting-cars waiting-washers)
+		  (progn
+		    [time+car := (first waiting-cars)]
+		    [waiting-cars := (rest waiting-cars)]
+		    (if (eq (second time+car) :fin)
+			(progn
+			  [finished := t]
+			  [Me <= :deliver])
+			(progn
+			  [time+washer := (first waiting-washers)]
+			  [waiting-washers := (rest waiting-washers)]
+			  (format t "~&---Make ~S to wash a car ~D"
+				  [washer-name
+				   <== [:name (second time+washer)]]
+				  (second time+car))
+			  [(second time+washer)
+			   <= [:wash (second time+car)]
+			   :VRT (max (first time+washer)
+				     (first time+car))]
+			  [job-record
+			   := (cons [(second time+washer)
+				     (second time+car)
+				     (max (first time+washer)
+					  (first time+car))]
+				    job-record)]))))))
+	   (=> [:num-washers n]
+	       (format t "~&Number of washers is ~D" n)
+	       [num-washers := n]))]
+	   ))]
+
+[object llvt
+  (script
+   (=> [:start service-time-list num-cars]
+       (temporary priori-rollback priori-exps)
+       (format t "~&===Lowest LVT first===")
+       [tw-group <= [:change-scheduler
+		     [pqueue-gen <== [:new #'< :key #'first]]]]
+       [tw-group <= :reset-monitor]
+       [tw-group <= :reset-eval]
+       (format t "~&RESULT=~S"
+	       [starter-1 <== [:start service-time-list num-cars]])
+       [priori-rollback := [tw-group <== :count]]
+       [priori-exps := [tw-group <== :eval-count]]
+       (format t "~&NUMBER OF ROLLBACKS=~D" priori-rollback)
+       (format t "~&NUMBER OF EXPRESSIONS=~D" priori-exps)
+       ![:priori [:rollback priori-rollback] [:exps priori-exps]]))]
+
+[object fifo
+  (script
+   (=> [:start service-time-list num-cars]
+       (temporary fifo-rollback fifo-exps)
+       (format t "~&===FIFO===")
+       [tw-group <= [:change-scheduler [normal-queue-gen <== :new]]]
+       [tw-group <= :reset-monitor]
+       [tw-group <= :reset-eval]
+       (format t "~&RESULT=~S"
+	       [starter-1 <== [:start service-time-list num-cars]])
+       [fifo-rollback := [tw-group <== :count]]
+       [fifo-exps := [tw-group <== :eval-count]]
+       (format t "~&NUMBER OF ROLLBACKS=~D" fifo-rollback)
+       (format t "~&NUMBER OF EXPRESSIONS=~D" fifo-exps)
+       ![:fifo [:rollback fifo-rollback] [:exps fifo-exps]]))]
+
+[object NR				; non-reifying
+  (script
+   (=> [:start service-time-list num-cars]
+       (temporary fifo-rollback fifo-exps)
+       (format t "~&===Non-Reifying===")
+       ;;[tw-group <= [:change-scheduler [normal-queue-gen <== :new]]]
+       [tw-group <= :non-reifying-eval]
+       [tw-group <= :reset-monitor]
+       ;;[tw-group <= :reset-eval]
+       (format t "~&RESULT=~S"
+	       [starter-1 <== [:start service-time-list num-cars]])
+       [fifo-rollback := [tw-group <== :count]]
+       ;;[fifo-exps := [tw-group <== :eval-count]]
+       (format t "~&NUMBER OF ROLLBACKS=~D" fifo-rollback)
+       ;;(format t "~&NUMBER OF EXPRESSIONS=~D" fifo-exps)
+       ![:fifo [:rollback fifo-rollback] ]))]
+
+[object NS				; no scheduling
+  (script
+   (=> [:start service-time-list num-cars]
+       (temporary fifo-rollback fifo-exps)
+       (format t "~&===No-scheduling===")
+       ;;[tw-group <= [:change-scheduler [normal-queue-gen <== :new]]]
+       [tw-group <= :no-schedule-eval]
+       [tw-group <= :reset-monitor]
+       ;;[tw-group <= :reset-eval]
+       (format t "~&RESULT=~S"
+	       [starter-1 <== [:start service-time-list num-cars]])
+       [fifo-rollback := [tw-group <== :count]]
+       ;;[fifo-exps := [tw-group <== :eval-count]]
+       (format t "~&NUMBER OF ROLLBACKS=~D" fifo-rollback)
+       ;;(format t "~&NUMBER OF EXPRESSIONS=~D" fifo-exps)
+       ![:fifo [:rollback fifo-rollback] ]))]
+
+[object starter
+  (script
+   (=> [:start service-time-list num-cars]
+       (temporary priori-rollback priori-exps
+		  fifo-rollback fifo-exps)
+       (format t "~&===Lowest LVT first===")
+       [tw-group <= [:change-scheduler
+		     [pqueue-gen <== [:new #'< :key #'first]]]]
+       [tw-group <= :reset-monitor]
+       [tw-group <= :reset-eval]
+       (format t "~&RESULT=~S"
+	       [starter-1 <== [:start service-time-list num-cars]])
+       [priori-rollback := [tw-group <== :count]]
+       [priori-exps := [tw-group <== :eval-count]]
+       (format t "~&NUMBER OF ROLLBACKS=~D" priori-rollback)
+       (format t "~&NUMBER OF EXPRESSIONS=~D" priori-exps)
+       ;;
+       (format t "~&===FIFO===")
+       [tw-group <= [:change-scheduler [normal-queue-gen <== :new]]]
+       [tw-group <= :reset-monitor]
+       [tw-group <= :reset-eval]
+       (format t "~&RESULT=~S"
+	       [starter-1 <== [:start service-time-list num-cars]])
+       [fifo-rollback := [tw-group <== :count]]
+       [fifo-exps := [tw-group <== :eval-count]]
+       (format t "~&NUMBER OF ROLLBACKS=~D" fifo-rollback)
+       (format t "~&NUMBER OF EXPRESSIONS=~D" fifo-exps)
+       ![:priori [:rollback priori-rollback] [:exps priori-exps]
+	 :fifo [:rollback fifo-rollback] [:exps fifo-exps]]
+))]
+
+[object starter-1
+  (state [Reply := nil] [wait-flag := t] [last-time := 0])
+  (script
+   (=> [:start service-time-list num-cars] @ R
+       (temporary [attendant := [attendant-gen <== :new]])
+       [attendant <= [:num-washers (length service-time-list)]]
+       [washers-gen <= :reset]
+       [washers-gen <== [:new service-time-list attendant]]
+       [Reply := R]
+       [wait-flag := t]
+       [Me <= [:loop 1 num-cars attendant]])
+   (=> [:loop next-car num-cars  attendant]
+       (if (> next-car num-cars)
+	   (progn 
+	     [[meta attendant]
+	      <= [:message [:arrival :fin] nil Me :VRT next-car]]
+	     [Me <= [:fin t]])
+	   (progn
+	     [[meta attendant]
+	      <= [:message [:arrival next-car] nil Me :VRT next-car]]
+	     [Me <= [:loop (1+ next-car) num-cars attendant]])))
+   (=> [:fin result]
+       (if wait-flag
+	   [wait-flag := nil]
+	   [Reply <= [:fin result]])))]
+
+[object washers-gen
+  (state [count := 0])
+  (script
+   (=> [:new nil attendant] !:fin)
+   (=> [:new (bracket* service-time rest) attendant] @ R
+       (temporary
+	[washer := [washer-gen <== [:new count service-time attendant]]])
+       [washer-name <= [:new washer count]]
+       [[meta attendant] <= [:message [:available washer] nil Me :VRT count]]
+       [count := (1+ count)]
+       [Me <= [:new rest attendant] @ R])
+   (=> :reset
+       [count := 0]))]
+
+[object washer-name
+  (state [namelist := nil])
+  (script
+   (=> [:new washer id]
+       (pushnew (cons washer id) namelist
+		:test #'equal))
+   (=> [:name washer]
+       (temporary [p := (assoc washer namelist)])
+       (if p !(list 'washer (cdr p))
+	   !washer))
+   (=> [:waiting-names washers]
+       !(mapcar (funcall #'(lambda (namelist)
+			     #'(lambda (washer)
+				 (let ((p (assoc (second washer) namelist)))
+				   (if p (list (first washer)
+					       'washer (cdr p))
+				       washer))))
+			 namelist)
+		washers))
+   (=> [:result result]
+       !(mapcar (funcall #'(lambda (namelist)
+			     #'(lambda (data)
+				 (list :washer
+				       (cdr (assoc (first data) namelist))
+				       :car (second data)
+				       :time (third data))))
+			 namelist)
+		result)))]

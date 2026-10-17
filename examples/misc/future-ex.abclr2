@@ -1,0 +1,53 @@
+;;; -*- Mode: ABCL1 -*-
+;;; future-ex.abclr2
+;;; Sample program for future type messages.
+;;; This program is shown in ABCL/1 user's gudie.
+;;; Jul. 25, 1992 by MASUHARA, H.
+
+(require 'future)			; load library
+
+[object printer
+  (script
+   (=> any
+       (format t "~A~%" any)))]
+
+;; Object tree2leaves receives a nested list and returns each
+;; element one by one.  After all elements of given list is
+;; returned, object tree2leaves returns a message :finish.
+[object tree2leaves
+  (script
+   (=> received-tree
+       (do ((tree received-tree))
+	   ((null tree))
+	 (match tree
+	   (is [[A] . B]
+	       [tree := [A . B]])
+	   (is [[A . B] . C]
+	       [tree := [A B . C]])
+	   (is [A . B]
+	       !A
+	       [tree := B])))
+       !:finish))]
+
+;; Object print-leaves receives a nested list, and prints each
+;; element of the list that is decomposed by object tree2leaves.
+;; Object print-leaves receives the decomposed element by future
+;; object.
+[object print-leaves
+  (script
+   (=> tree
+       (temporary [leaf := nil]
+		  [leaves := (make-future)])
+       [tree2leaves <= tree $ leaves]
+       [leaf := (next-value leaves)]
+       (do ()
+	   ((eq leaf :finish))
+	 [printer <= leaf]
+	 [leaf := (next-value leaves)])))]
+
+#|
+
+(inc "future-ex")			; load this file
+[print-leaves <= '((a b) (c (d . e) f) g)]
+
+|#

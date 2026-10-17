@@ -1,0 +1,32 @@
+
+(defun tw-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&TW-PASS ~A~%" name)
+      (error "TW-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "08-timewarp-rollback" :use-source t)
+[TW-group <= [:change-scheduler [normal-queue-gen <== :new]]]
+[source-meta-state := [[meta [meta rollback-source]] <== :state]]
+[sink-meta-state := [[meta [meta rollback-sink]] <== :state]]
+[source-state := [source-meta-state <== [:value-of 'state]]]
+[sink-state := [sink-meta-state <== [:value-of 'state]]]
+[[meta rollback-source] <= [:message [:add 10] nil nil 0 10]]
+(tw-check "speculative-source" [source-state <== [:value-of 'total]] 10)
+(tw-check "speculative-sink" [sink-state <== [:value-of 'value]] 10)
+[source-output := [source-meta-state <== [:value-of 'output-history]]]
+[source-input := [source-meta-state <== [:value-of 'pqueue]]]
+[sink-input := [sink-meta-state <== [:value-of 'pqueue]]]
+(tw-check "speculative-output" [source-output <== :show] (list (list rollback-sink (list :value 10) nil 10 11)))
+[[meta rollback-source] <= [:message [:add 1] nil nil 0 5]]
+(tw-check "corrected-source" [source-state <== [:value-of 'total]] 11)
+(tw-check "corrected-sink" [sink-state <== [:value-of 'value]] 11)
+(tw-check "corrected-trace" [sink-state <== [:value-of 'trace]] '((11 11) (6 1)))
+(tw-check "source-lvt" [source-meta-state <== [:value-of 'LVT]] 10)
+(tw-check "sink-lvt" [sink-meta-state <== [:value-of 'LVT]] 11)
+(tw-check "corrected-output" [source-output <== :show] (list (list rollback-sink (list :value 11) nil 10 11) (list rollback-sink (list :value 1) nil 5 6)))
+(tw-check "replayed-input" [source-input <== :show] '(:old ((:message (:add 10) nil nil 0 10) (:message (:add 1) nil nil 0 5)) :queue nil))
+(tw-check "sink-inputs" [sink-input <== :show] (list :old (list (list :message (list :value 11) nil rollback-source 10 11) (list :message (list :value 1) nil rollback-source 5 6)) :queue nil))
+(tw-check "cascade-counter" [TW-group <== :count] 2)
+
+(format t "~&TW-END~%")
+:q

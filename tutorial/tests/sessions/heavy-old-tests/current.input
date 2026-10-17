@@ -1,0 +1,23 @@
+(defun legacy-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&LEGACY-PASS ~A~%" name)
+  (error "LEGACY-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/heavy-old-tests/current/lib/heavy-meta" :use-source t)
+(inc "@ROOT@/build/heavy-old-tests/current/original-counter" :use-source t)
+(legacy-check "initial" [counter <== [:value]] 0)
+@HEAVY-ORIGINAL-SESSION@
+(legacy-check "guard-enforced" [counter <== [:value]] 123)
+[counter <= [:add 7]]
+(legacy-check "positive-body" [counter <== [:value]] 130)
+[scripts := [[meta counter] <== :scripts]]
+(legacy-check "separate-guard-exists" (not (null [(first scripts) <== :where-exp])) t)
+(legacy-check "fallback-unguarded" [(second scripts) <== :where-exp] nil)
+(legacy-check "structural-lookup" [[meta counter] <== [:find-script [:add -1]]] (first scripts))
+(legacy-check "state" [[[meta counter] <== :state] <== [:value-of 'c]] 130)
+[counter <= :legacy-unknown]
+(legacy-check "unknown-removed" [[meta counter] <== :queue] nil)
+[counter <= [:value]]
+(legacy-check "observed-stalled-after-unknown" (mapcar #'first [[meta counter] <== :queue]) '((:value)))
+(legacy-check "state-after-unknown" [[[meta counter] <== :state] <== [:value-of 'c]] 130)
+(format t "~&LEGACY-END~%")
+:q

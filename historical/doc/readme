@@ -1,0 +1,41 @@
+;;; -*- Mode: Indented-Text; -*-
+
+	      ABCL/R2 Gesi (the Summer Solstice) version
+		    (version 0.50: June 21, 1993)
+		  (version 0.60: Septempber 8, 1998)
+
+This distribution kit contains an implementation of ABCL/R2 system
+which is an object-oriented concurrent reflective language based on
+Hybrid Group Architecture.  As a reflective language, an ABCL/R2
+program can dynamically control its own behavior, such as scheduling
+policy, from within user-program.  As an object-oriented concurrent
+language, this system has almost all functions of ABCL/1.
+
+
+Currently, we have tested the system on the following Common Lisp systems:
+    o KCl (Kyoto Common Lisp)  Nov 13, 1990 (on SUN/SparcStations),
+    o AKCL (Austin Kyoto Common Lisp)  Version(1.625)
+      (on SUN/SparcStations),
+    o CMU Common Lisp 17e (on SUN/SparcStations),
+    o Macintosh Common Lisp 2.0,
+    o Sun Common Lisp (on SUN/SparcStations),
+    o Allegro CL 4.1, 4.2 [SPARC; R1] (on SUN/SparcStations)
+             and 5.0.beta [Linux/X86], and
+    o CLISP version February 1994 (on SUN/SparcStations)
+(We have also tested on ACL\PC (Allegro Common Lisp for Windows)
+version 1.0, and it has worked.  If you are interested in the ACL\PC
+version, please contact us.)
+
+To build the system, please read `install' file (and `readme-mcl' for
+MCL users).
+
+If you have any troubles, questions, suggestions or comments, please
+feel free to contact the following address:
+
+     ABCL Group (Akinori Yonezawa)
+          Yonezawa Laboratory, Department of Information Science, 
+	  the University of Tokyo,
+	  7-3-1, Hongo, Bunkyo-ku, Tokyo 113, JAPAN
+     Tel: +81-3-5800-6913
+     Fax: +81-3-5689-4365
+     Internet:	abcl@is.s.u-tokyo.ac.jp

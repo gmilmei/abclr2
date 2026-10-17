@@ -1,0 +1,13 @@
+
+(defun reflection-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&REFLECTION-PASS ~A~%" name)
+      (error "REFLECTION-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "@ROOT@/build/reflection-tests/meta-meta" :use-source t)
+(reflection-check "twice" [twice <== 3] 6)
+(reflection-check "distinct-levels" (eq twice [meta twice]) nil)
+(reflection-check "distinct-meta-levels" (eq [meta twice] [meta [meta twice]]) nil)
+
+(format t "~&REFLECTION-END~%")
+:q

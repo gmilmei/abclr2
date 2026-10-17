@@ -1,0 +1,144 @@
+\subsection{Retry: Repairing a Message Acceptance Condition}
+\label{sec:retry}
+
+Watch and Report observed execution. This project changes dispatch when
+a request cannot yet be accepted. The question mark in the opening comment of
+\filepath{examples/misc/fault-tolerant.abclr2} is worth keeping in mind.
+This is a small experiment in reflective recovery, not a distributed
+fault-tolerance service. Its receiver refuses ordinary requests until it
+has received an initialization message. The sender's metaobject repairs
+that condition and retransmits the refused request.
+No machine crash or lost network packet is involved.
+
+\subsubsection{Start with the Application}
+
+Read the two application objects before their generator:
+
+\wholelisting[firstline=130,lastline=147]{examples/misc/fault-tolerant.abclr2}
+
+The server owns \code{amount}, initially \code{nil}. Its initialization
+handler resets that value to zero, and \code{[:count-up n]} adds an amount
+and prints the resulting count. The client has no application state:
+\code{[:start server]} simply sends \code{[:count-up 10]} asynchronously.
+Both explicitly select \code{FT-meta-gen}, so both participate in the
+recovery protocol. The client's empty initialization handler is still
+important: its metaobject must accept the client before it can run
+\code{:start}.
+
+In a fresh session at the repository root, the file's own entry sequence is:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "examples/misc/fault-tolerant" :use-source t)
+[client <= [:initialize]]
+[client <= [:start server]]
+; Prints Count is 10.
+\end{lstlisting}
+\end{codeblock}
+
+The server was deliberately not initialized by these commands. A successful
+count therefore depends on recovery. Do not change \code{amount}'s initializer
+to zero: that would conceal the problem the original example demonstrates.
+For scratch-copy checks that leave the original directory untouched, run
+\code{make -C tutorial retry-check}.
+
+\subsubsection{Trace the Rejection and Retransmission}
+
+Follow one request in six steps. This is a causal explanation, not a promise
+about the order of unrelated console output.
+
+\begin{enumerate}
+\item The client's metaobject accepts \code{[:initialize]}, sets its private
+acceptance flag, and executes the empty client handler.
+\item The accepted \code{[:start server]} handler sends
+\code{[:count-up 10]} to the server. Its sender is the client.
+\item The server's metaobject dequeues the request. Its acceptance flag is
+false, so it does not execute the arithmetic on \code{nil}.
+\item It sends \code{[:reject Receiver Message Reply Sender]} to the
+client's metaobject. Here \code{Receiver} is the server and
+\code{Message} is the original \code{[:count-up 10]}.
+\item The client's metaobject sends \code{[:initialize]} to the server,
+then forwards the original message envelope to the server's metaobject.
+\item The server processes initialization before the retransmitted request.
+Initialization sets \code{amount} to zero; the accepted count request
+then sets it to 10 and prints the count.
+\end{enumerate}
+
+The original recovery handler is short:
+
+\wholelisting[firstline=47,lastline=51]{examples/misc/fault-tolerant.abclr2}
+
+Notice the two levels of addressing. The initialization goes to the
+application object \code{Receiver}. Retransmission goes directly to
+\code{[meta Receiver]}, using the interpreter's \code{:message} envelope.
+This preserves the old \code{Reply} and \code{Sender} fields rather than
+creating a new application request with the recovering metaobject as sender.
+In this trace the recovered request was a past-type send, so it has no
+waiting application reply to deliver.
+
+\subsubsection{Read the Acceptance State Machine}
+
+The generator constructs the familiar queue, environment, script set,
+evaluator, group manager, and \code{:dormant}/\code{:active} dispatch mode.
+Its extra \code{initialized} flag belongs to the \emph{metaobject};
+it is not the server's application variable \code{amount}.
+
+\wholelisting[firstline=53,lastline=60]{examples/misc/fault-tolerant.abclr2}
+
+The \code{:message} handler enqueues a three-field application envelope.
+If dormant, the metaobject activates itself and schedules \code{:begin}.
+That handler removes one envelope and applies the acceptance condition
+before looking for an application script:
+
+\wholelisting[firstline=66,lastline=80]{examples/misc/fault-tolerant.abclr2}
+
+\code{[:initialize . \_]} matches a list beginning with the keyword
+\code{:initialize}; the wildcard ignores its remaining tail. The flag is
+set \emph{before} the application handler is found or executed. Thus the
+comment saying that initialization has executed is stronger than the code:
+the flag establishes that an initialization-shaped message was encountered.
+It does not validate a successful initialization result.
+
+For rejection, \code{Me} is the server's metaobject and \code{[den Me]}
+recovers the application server it represents. \code{[meta Sender]}
+selects the sender's recovery machinery. The rejected request has already
+been removed from the queue; \code{:end} advances dispatch rather than
+putting it back locally. The sender is responsible for retransmission.
+
+For acceptance, lines 83--90 use \code{find-script} to obtain bindings and
+a script body. The evaluator executes that body in an environment extending
+the application's state. Its completion continuation schedules \code{:end}.
+This continuation is an interpreter completion notice, not a client/server
+acknowledgment. Lines 94--97 either process the next queued request or return
+to dormant mode. The generator's final \code{:do-evlis} and \code{pairlis}
+sequence builds the initial application environment, as in the earlier
+inheritance and MCP generators; that construction is separate from the
+application's \code{[:initialize]} protocol.
+
+\subsubsection{What the Experiment Does and Does Not Guarantee}
+
+A second client start prints \emph{Count is 20.}: the server is already
+accepted, so no recovery reset is needed. An explicit server initialization
+resets the count to zero; the next client start prints \emph{Count is 10.}
+Six isolated checks verify these state transitions, the printed counts,
+and an empty final server queue using the distributed example.
+Reflective state queries inspect \code{amount}; they are test probes, not
+new server API methods.
+
+The example has no retry budget, timeout, persistent log, duplicate detection,
+or exactly-once delivery mechanism. A sender without the expected
+\code{:reject} handler cannot supply this recovery. Multiple rejections can
+cause multiple initialization messages, each resetting server state.
+The checked two-object sequence demonstrates one repaired precondition,
+not correctness for every interleaving or failure.
+
+\paragraph{Check your understanding, with answers.}
+Why initialize the client even though its handler does nothing?
+Its metaobject also gates application requests; the empty handler satisfies
+the chosen protocol without adding application work.
+Why preserve the original sender on retry?
+Script matching can depend on the sender, and subsequent rejection must
+reach the original sender's recovery machinery.
+Would automatically resetting the server after every request be equivalent?
+No: it would lose the accumulated count. Recovery belongs to the failed
+acceptance path, not the normal successful path.

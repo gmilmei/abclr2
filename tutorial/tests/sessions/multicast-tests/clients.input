@@ -1,0 +1,25 @@
+(defun multicast-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&MULTICAST-PASS ~A~%" name)
+  (error "MULTICAST-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/multicast-tests/10-multicast" :use-source t)
+(inc "@ROOT@/build/multicast-tests/original-objects" :use-source t)
+(multicast-check "group-now" [multicast-client <== [:now [twice [square :label] identity nil] 12]] '(24 (144 :label) 12 nil))
+(multicast-check "single-target-forwarding" [multicast-client <== [:now identity 7]] 7)
+(multicast-check "dotted-target-pair" [multicast-client <== [:now (cons twice square) 3]] '(6 . 9))
+[object multicast-nil (script (=> value !nil))]
+(multicast-check "nil-is-a-reply" [multicast-client <== [:now [multicast-nil identity] 3]] '(nil 3))
+[object multicast-sender (script (=> :sender from S !S))]
+(multicast-check "forwarder-is-sender" [multicast-client <== [:now [multicast-sender multicast-sender] :sender]] (list multicaster multicaster))
+(multicast-check "past-submission" [multicast-client <== [:past [twice square] 3 multicast-inbox]] :submitted)
+(multicast-check "past-collected-reply" [multicast-inbox <== :status] '(1 (6 9)))
+[multicast-inbox <== :reset]
+(multicast-check "fire-submission" [multicast-client <== [:fire [multicast-silent multicast-silent] 8]] :submitted)
+(multicast-check "duplicate-fire-effects" [multicast-silent <== :hits] 2)
+(multicast-check "zero-object-submission" [multicast-client <== [:past [:label nil] 3 multicast-inbox]] :submitted)
+(multicast-check "zero-object-no-reply" [multicast-inbox <== :status] '(0 nil))
+[multicast-client <== [:past [identity multicast-silent] 4 multicast-inbox]]
+(multicast-check "missing-reply-no-aggregate" [multicast-inbox <== :status] '(0 nil))
+(multicast-check "silent-target-ran" [multicast-silent <== :hits] 3)
+(format t "~&MULTICAST-END~%")
+:q

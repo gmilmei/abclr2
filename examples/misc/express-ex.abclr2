@@ -1,0 +1,77 @@
+;;; -*- Mode: Lisp; -*-
+;;; express2-ex.abclr2
+;;; test for express messages
+;;; Jul.20, 1992 by MASUHARA, H.
+;;; Nov.20, 1992 by MASUHARA, H.
+
+;; (require 'express)			; load library
+
+[group express
+ (meta-gen meta/express-gen)
+ (evaluator [eval/express-gen
+	     <== [:new (r2sys::create-primary-eval group)]])]
+
+[object clock
+  (group express)
+  (state [stop := nil]
+	 [time := 0])
+  (script
+   (=> :start
+       [stop := nil]
+       (do () (stop)
+	 (format t "~&Count up")
+	 (atomic			; count up tiwce
+	  [time := (1+ time)]
+	  (dotimes (i 5))		;dummy loop
+	  [time := (1+ time)]
+	  )
+	 )
+       (format t "~&The clock is stopped.")
+       !:finished
+       )
+   (=> :start-non-atomic
+       [stop := nil]
+       (do () (stop)
+	 ;;(print "Count up")
+	 ;; (atomic			; if atomic is not used...
+	  [time := (1+ time)]
+	  (dotimes (i 5))		;dummy loop
+	  [time := (1+ time)])
+         ;;)
+       (format t "The clock is stopped.")
+       !:finished
+       )
+   (=> :peek				;express
+       (format t "~&Tick of the clock is inspected by an express message.")
+       ;; Surrounding ATOMIC form is no longer needed.
+       !time)				; Even number should be returned.
+   (=> :stop				;express
+       (format t "~&The clock got an order to stop.")
+       [stop := t]))]
+
+[object test
+  (group express)
+  (script
+   (=> :start @ R
+       (format t "~&Test 1:(atomic (incf time) (dotimes (x 5)) (incf time))~
+		  ~&Only even numbers should be shown.")
+       [clock <= :start @ [cont _ [Me <= :start-non-atomic @ R]]]
+       (dotimes (i 20)
+	 ;; Thanks to the atomic form, we will see only even numbers.
+	 (print [clock <== :peek :express]))
+       [clock <= :stop :express])
+   (=> :start-non-atomic @ R
+       (format t  "~&Test 2: withou atomic form~
+		   ~&Either even and odd numbers would be seen.")
+       [clock <= :start-non-atomic @ [cont _ [Me <= :end @ R]]]
+       (dotimes (i 20)
+	 ;; We may see odd numbers as well as even ones.
+	 (print [clock <== :peek :express]))
+       [clock <= :stop :express])
+   (=> :end !:finished))]
+
+#|
+(inc "express-ex")			; load this file
+[test <== :start]			; start the test prgoram
+|#
+

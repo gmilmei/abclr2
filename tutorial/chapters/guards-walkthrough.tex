@@ -1,0 +1,194 @@
+\subsection{Guarded Scripts: The Original Heavy-Meta Counter}
+\label{sec:guards}
+
+We now return from interpreter construction to a useful change in
+application dispatch. A structural pattern can bind \code{n}, but it does not establish that
+\code{n} is a positive integer. A script's \code{where} clause supplies
+an additional acceptance test, called a \emph{guard}. This is part of
+script selection, not an \code{if} inside an already selected body.
+If the guard is false, the metaobject tries the next script for the
+same request. The user's guide describes this facility as a library
+extension~\cite{guide}; it does not add guards to the ordinary
+\code{match} form.
+
+The original example is inside the closing block comment of
+\filepath{lib/heavy-meta.abclr2}, not in a separate example file:
+
+\wholelisting[firstline=133,lastline=144]{lib/heavy-meta.abclr2}
+
+Loading the library defines the generator \code{heavy-meta}, not this
+commented counter. In a fresh session, load the library before entering
+the counter definition above. Then replay its original commands:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc-lib "lib/heavy-meta" :use-source t)
+; Enter the original counter definition after loading the library.
+[counter <= [:add 123]]
+[counter <= [:add -100]]
+[counter <== [:value]] ; => 123
+\end{lstlisting}
+\end{codeblock}
+
+The two add requests are past-type sends. Neither add script replies;
+do not replace them by now-type sends expecting an acknowledgement.
+The value request is now-type and explicitly replies with \code{c}.
+The reset request likewise changes state without replying.
+The automated \code{guards-check} extracts original lines 133--144
+byte-for-byte and replays lines 146--148 separately, leaving the
+selected code unchanged.
+
+\paragraph{Trace both structural success and guard failure.}
+For \code{[:add 123]}, the first pattern binds \code{n = 123}.
+\code{integerp} is true and \code{plusp} is true, so the body adds 123
+to \code{c}. For \code{[:add -100]}, that same pattern still matches
+and binds \code{n = -100}. Only the guard fails. The metaobject then
+tries \code{[:add \_]}, whose wildcard accepts the argument without
+binding it. That script has no body and intentionally ignores the
+request, but its execution still finishes the dispatch cycle.
+
+The \code{and} evaluates left to right and stops at the first false
+result. Consequently an argument such as \code{"7"} fails \code{integerp}
+without asking \code{plusp} to compare a string. Zero is an integer
+but not positive, so it also reaches the fallback. Lisp's \code{nil}
+is false; other values, including zero, are true when used directly
+as guard results. A guard need not return exactly \code{t}.
+
+For \code{[:value]}, neither add pattern matches; their guards are
+not evaluated at all. The value script has no guard and replies
+immediately once selected. Ordering still matters: placing the
+unguarded add fallback first would accept every add request before
+the guarded script could be considered.
+
+\paragraph{Ensure that the object actually uses heavy-meta.}
+The compiler records the guard separately from the body. In the
+ordinary counter definition, it selects \code{heavy-meta} automatically
+because neither a metaobject generator nor a group is specified.
+The current \filepath{src/translate.lsp} makes that condition explicit.
+The guide's shorter description of automatic selection should not be
+read as overriding any custom group or metaobject configuration.
+
+If you specify a group, explicitly select a compatible generator:
+
+\wholelisting[firstline=26,lastline=32]{tutorial/examples/09-guards.abclr2}
+
+Loading the library alone does not replace the generator used by every
+group. A diagnostic object with an explicit ordinary group but no
+\code{meta-gen} accepts its first structural match even when its stored
+guard is \code{nil}; the ordinary metaobject does not perform this
+guard protocol. Likewise, the non-reifying object translator warns
+that a \code{where} field is ignored. Do not use a non-reifying object
+as a guarded receiver. If another reflective generator is needed,
+it must implement compatible guard-aware selection; naming both
+features does not compose their algorithms automatically.
+
+\paragraph{Read the library's continuation chain.}
+The heavy metaobject retains the familiar ordinary queue, application
+state environment, scripts, evaluator, group manager, and active/dormant
+mode. Its \code{:begin} dequeues one request as \code{MRS}, a triplet
+of message, reply destination, and sender. Selection is then a series
+of asynchronous requests and result continuations:
+
+\begin{enumerate}
+  \item Ask the candidate script \code{[:match . MRS]}. Structural
+  failure immediately moves on to the remaining scripts.
+  \item On success, the result contains \code{[Bindings ScriptBody]}.
+  Ask \code{env-gen} for a frame containing those bindings, with the
+  object's persistent state as its outer environment.
+  \item Ask the script for \code{:where-exp}. A \code{nil} reply means
+  there is no guard. Otherwise this reply is a compiled expression
+  representation, not its boolean result.
+  \item Evaluate that representation with \code{[:do ...]} in the new
+  environment. Its result continuation either starts \code{ScriptBody}
+  in that same environment or tries the remaining scripts.
+  \item Attach \code{[cont \_ [Me <= :end]]} to body execution.
+  Completion advances the ordinary queue or restores dormant mode.
+\end{enumerate}
+
+The central decision is visible in the original implementation:
+
+\wholelisting[firstline=74,lastline=89]{lib/heavy-meta.abclr2}
+
+Its two \code{if} tests answer different questions: whether a guard
+representation exists, and whether evaluating it accepted the request.
+An explicitly false guard such as \code{where nil} still has a non-nil
+representation; it must be evaluated and rejected, not treated as absent.
+The completion continuation is also separate from the script's
+application reply. The empty fallback can finish execution without
+sending anything to the original caller.
+
+The library first presents a synchronous sketch under
+\code{\#+COMMENT}, then the active continuation-passing version.
+Continuation-passing style, abbreviated CPS in its comments, makes
+each next step a handler of the preceding result. Read the active
+chain as the implementation; the sketch is explanatory, not an
+additional code path executed before it.
+
+\paragraph{Which bindings can the guard see?}
+The guard runs after pattern matching and environment creation. It
+can use pattern variables, persistent state, outer lexical bindings,
+and the bound reply/sender fields of its script header. The supplemental
+example checks the last two explicitly:
+
+\wholelisting[firstline=15,lastline=24]{tutorial/examples/09-guards.abclr2}
+
+In the first driver request, \code{Me} denotes the driver, which is
+also the sender received as \code{S}. The guard succeeds and the body
+confirms that \code{R} is a non-nil reply destination. The other request
+passes \code{nil} as the expected sender, so the guard fails and the
+fallback replies \code{nil}.
+
+Body-local \code{temporary} bindings are different: their initialization
+belongs to body execution, after guard selection. Do not refer to those
+bindings as though they were available before the body starts.
+The parser's header order is pattern, optional \code{@ R}, optional
+\code{from S}, then optional \code{where expression}.
+
+\paragraph{A failed guard does not undo its effects.}
+The supplemental \code{guarded-choice} increments \code{checks} inside
+its guard before testing the argument against state binding \code{limit}.
+Requests for 5, 11, and the symbol \code{wrong} return
+\code{:rejected}, \code{:accepted}, and \code{:rejected}, while
+\code{checks} becomes 3. Even failed candidates have executed their
+guards. The example demonstrates the mechanism, not a recommendation
+to hide side effects in acceptance tests.
+
+\wholelisting[firstline=4,lastline=13]{tutorial/examples/09-guards.abclr2}
+
+Prefer simple predicates. A guard that waits on an ordinary request
+to its own receiver can deadlock: that request cannot start while
+the current guard is still selecting a script. Other objects can also
+change shared state; guard evaluation is not a multi-object transaction.
+
+Reflective script lookup is not the same as guard-aware dispatch.
+The heavy metaobject's \code{[:find-script Message]} query calls
+\code{search-script}, which checks structural matches. In the original
+counter it returns the first add script even for \code{[:add -1]}.
+Its \code{:where-exp} remains available for inspection, but the lookup
+query does not certify that evaluating that guard would accept the request.
+
+\paragraph{Evidence and exercise.}
+Run \code{make -C tutorial guards-check}. Twenty-four checks cover the
+original counter, script/guard inspection, state and sender/reply bindings,
+failed-guard effects, explicit-group setup and non-reifying restrictions.
+Translations, extracted sources and transcripts stay in
+\filepath{build/guard-tests/}. The runnable supplemental definitions are in
+\filepath{tutorial/examples/09-guards.abclr2}.
+
+Why does \code{[:add -100]} not raise an error or block later value queries?
+Its structural match succeeds, its guard fails, and the empty fallback
+completes dispatch. Why not put the same test inside the first body's
+\code{if}? That would select the first script regardless of the test;
+it would not ask dispatch to try the next script. Why must a guard's
+side effects be considered separately from acceptance? Evaluation has
+already happened when its false result selects another candidate.
+
+\paragraph{Which Heavy-Meta library should you load?}
+Use \filepath{lib/heavy-meta.abclr2} for guarded programs. The distribution
+also contains \filepath{lib/heavy-meta-old.abclr2}, a historical variant
+whose guard protocol does not match the current translator. It is not
+needed by the original programs in \filepath{examples/} and is not an
+interchangeable alternative. Both files define \code{heavy-meta} and
+provide the feature \code{heavy-meta}; do not load both into the same
+session. The old file is historical reference material, not another
+step in this book's learning path.

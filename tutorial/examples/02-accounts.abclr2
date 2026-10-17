@@ -1,0 +1,30 @@
+;;; Account factory. Transfers assume trusted recipients and no competing
+;;; transfers. This example is not a distributed transaction protocol.
+[object account-factory
+ (script
+  (=> [:new initial-balance]
+      ![object
+        (state [balance := initial-balance])
+        (script
+         (=> [:deposit amount]
+             (if (and (integerp amount) (> amount 0))
+               (progn [balance := (+ balance amount)] !balance)
+               !:invalid-amount))
+         (=> [:withdraw amount]
+             (if (and (integerp amount) (> amount 0)
+                      (>= balance amount))
+               (progn [balance := (- balance amount)] !balance)
+               !:rejected))
+         (=> [:transfer other amount]
+             (if (and (not (eq other Me))
+                      (integerp amount) (> amount 0)
+                      (>= balance amount))
+               (let ((result [other <== [:deposit amount]]))
+                 (if (integerp result)
+                   (progn [balance := (- balance amount)] !:transferred)
+                   !:rejected))
+               !:rejected))
+         (=> :balance !balance))]))]
+
+[alice := [account-factory <== [:new 100]]]
+[bob := [account-factory <== [:new 20]]]

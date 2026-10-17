@@ -1,0 +1,11 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc-lib "@ROOT@/build/group-tests/lib/copy" :use-source t)
+(inc-lib "@ROOT@/build/group-tests/lib/report" :use-source t)
+[group audit-group (meta-gen meta/report-gen)]
+[object audit-target (group audit-group) (state [born-group := [group-of Me]]) (script (=> :owner !Group) (=> :born !born-group))]
+(group-context :report [audit-target <== :owner] audit-group)
+(group-check-nrm :report audit-target audit-group [group-of meta/report-gen])
+(group-check :initializer-owner [audit-target <== :born] audit-group)
+(format t "~&GROUP-END~%")
+:q

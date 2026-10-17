@@ -1,0 +1,140 @@
+;;; -*- Mode: ABCL1 -*-
+;;; watch.abclr2
+;;; An evaluator that reports message transmission.
+;;; Nov. 23, 1992 by MASUHARA, H.
+
+(provide 'watch)
+
+#|
+Typical usages are:
+(watch object) / (noWatch object)
+(watch-group GMgr) / (noWatch-group GMgr)
+(watch-toplevel) / (noWatch-toplevel)
+
+or, with copy library:
+(copy symbol :group watching)
+
+|#
+
+(defmacro watch (object)
+  `[watch-manager <= [:watch-object ,object]])
+
+(defmacro watch-group (group)
+  `[watch-manager <= [:watch-group ,group]])
+
+(defmacro watch-toplevel ()
+  `[watch-manager <= [:watch-toplevel]])
+
+(defmacro nowatch (object)
+  `[watch-manager <= [:nowatch-object ,object]])
+
+(defmacro nowatch-group (group)
+  `[watch-manager <= [:nowatch-group ,group]])
+
+(defmacro nowatch-toplevel ()
+  `[watch-manager <= [:nowatch-toplevel]])
+
+[object eval/watch-gen
+ (meta-gen non-reifying-meta)
+ (script
+  (=> [:new original-eval :reporter reporter]
+      ![object eval/report
+        (meta-gen non-reifying-meta)
+        (script
+         (=> [:do [:send-past . Arg] . Context] @ C
+             [reporter <= [:send-past Arg Context C]]
+             [original-eval <= [:do [:send-past . Arg] . Context] @ C])
+         (=> [:do [:send-now . Arg] . Context] @ C
+             [reporter <= [:send-now Arg Context C]]
+             [original-eval <= [:do [:send-now . Arg] . Context] @ C])
+         (=> [:do [:send-future . Arg] . Context] @ C
+             [reporter <= [:send-future Arg Context C]]
+             [original-eval <= [:do [:send-future . Arg] . Context] @ C])
+         (=> :original-evaluator !original-eval)
+         (=> any @ C
+             [original-eval <= any @ C]))]))]
+
+[object watch-manager
+ (meta-gen non-reifying-meta)
+ (state [watched-objects := nil]
+        [watched-groups := nil]
+        [original-toplevel := nil])
+ (script
+  (=> [:watch-group GMgr reporter]
+      (temporary [original := [GMgr <== :evaluator]])
+      (let ((eval/watch
+             [eval/watch-gen <== [:new original :reporter reporter]]))
+        (push (cons GMgr original) watched-groups)
+        [Gmgr <= [:replace-evaluator eval/watch]]))
+  (=> [:watch-object obj reporter]
+      (temporary [original := [[meta obj] <== :evaluator]])
+      (let ((eval/watch
+             [eval/watch-gen <== [:new original :reporter reporter]]))
+        (push (cons obj original) watched-objects)
+        [[meta obj] <= [:set-evaluator eval/watch]]))
+  (=> [:watch-group GMgr] @ R
+      [Me <= [:watch-group GMgr default-watch-reporter] @ R])
+  (=> [:watch-object obj] @ R
+      [Me <= [:watch-object obj default-watch-reporter] @ R])
+  (=> [:watch-toplevel reporter]
+      (temporary [eval/watch
+                  := [eval/watch-gen <== [:new *eval* :reporter reporter]]])
+      [original-toplevel := *eval*]
+      [*eval* := eval/watch])
+  (=> [:watch-toplevel] @ R
+      [Me <= [:watch-toplevel default-watch-reporter]])
+  (=> [:nowatch-object obj]
+      (temporary [original := (cdr (assoc obj watched-objects))])
+      (when original 
+        [watched-objects := (delete obj watched-objects :key #'car)]
+        [[meta obj] <= [:set-evaluator original]]))
+  (=> [:nowatch-group GMgr]
+      (temporary [original := (cdr (assoc GMgr watched-groups))])
+      (when original
+        [watched-groups := (delete GMgr watched-groups :key #'car)]
+        [GMgr <= [:replace-evaluator original]]))
+  (=> [:nowatch-toplevel]
+      (when original-toplevel
+        [*eval* := original-toplevel]
+        [original-toplevel := nil]))
+  )]
+
+[object reporter-gen
+ (meta-gen non-reifying-meta)
+ (script
+  (=> [:new :pred predicate-function :format format-function]
+      ![object reporter
+        (meta-gen non-reifying-meta)
+        (script
+         (=> [message-type message-args context continuation]
+             (when (funcall predicate-function
+                            message-type message-args context continuation)
+               (format t "~&~A"
+                       (funcall format-function
+                                message-type message-args context continuation))))
+         )]))]
+
+[default-watch-reporter 
+ := [reporter-gen 
+     <== [:new :pred #'(lambda (type args context cont) t)
+              :format 
+              #'(lambda (type args context cont)
+                  (format nil "[~A ~A ~A~A~A from ~A]"
+                          (first args)
+                          (case type
+                            (:send-past '<=)
+                            (:send-now '<==)
+                            (:send-future '<<=))
+                          (second args)
+                          (if (or (eq type ':send-now) (null (third args)))
+                            "" " @ ")
+                          (if (or (eq type ':send-now) (null (third args)))
+                            "" (third args))
+                          (abclr2-system::den-of
+                           (second context))))]]]
+
+[group watching
+ (meta-gen (abclr2-system::create-primary-meta-gen group))
+ (evaluator [eval/watch-gen 
+             <== [:new (abclr2-system::create-primary-eval group)
+                       :reporter default-watch-reporter]])]

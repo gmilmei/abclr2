@@ -1,0 +1,48 @@
+(defun cache-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&CACHE-PASS ~A~%" name)
+      (error "CACHE-FAIL ~A got ~S expected ~S" name actual expected)))
+(defun cache-select-path () (setf r2sys::use-new-primary-meta nil))
+(cache-select-path)
+[object cache-target (state [n := 7])
+  (script (=> [:tag x] ![:base x]) (=> :keep !n))]
+[object cache-donor (script (=> [:tag x] ![:added x]))]
+[base-scripts := [[meta cache-target] <== :scripts]]
+[added-script := (first [[meta cache-donor] <== :scripts])]
+(cache-check "initial" [cache-target <== [:tag 1]] '(:base 1))
+[[meta cache-target] <= [:add-script added-script]]
+(cache-check "add-list" (first [[meta cache-target] <== :scripts]) added-script)
+(cache-check "add-dispatch" [cache-target <== [:tag 2]] '(:added 2))
+(cache-check "state-after-add" [cache-target <== :keep] 7)
+[object cache-sink (state [values := nil])
+  (script (=> :values !(reverse values))
+          (=> value [values := (cons value values)]))]
+; The second queued request is dispatched through the completion callback.
+[[meta cache-target] <= [:enqueue [[:tag 11] cache-sink nil]]]
+[[meta cache-target] <= [:enqueue [[:tag 12] cache-sink nil]]]
+[[meta cache-target] <= :begin]
+(cache-check "queue-completion" [cache-target <== :keep] 7)
+(cache-check "queued-replies" [cache-sink <== :values] '((:added 11) (:added 12)))
+[[meta cache-target] <= [:remove-script [:tag 0]]]
+(cache-check "remove-list" [[meta cache-target] <== :scripts] base-scripts)
+(cache-check "remove-dispatch" [cache-target <== [:tag 3]] '(:base 3))
+[[meta cache-target] <= [:add-script added-script]]
+[[meta cache-target] <= [:add-script added-script]]
+(cache-check "duplicates-added" (length [[meta cache-target] <== :scripts]) 4)
+[[meta cache-target] <= [:remove-script [:tag 0]]]
+(cache-check "remove-first-only" (length [[meta cache-target] <== :scripts]) 3)
+(cache-check "duplicate-still-active" [cache-target <== [:tag 4]] '(:added 4))
+[[meta cache-target] <= [:remove-script [:tag 0]]]
+(cache-check "remove-last-duplicate" [[meta cache-target] <== :scripts] base-scripts)
+(cache-check "base-restored" [cache-target <== [:tag 5]] '(:base 5))
+[[meta cache-target] <= [:remove-script :absent]]
+(cache-check "no-match-list" [[meta cache-target] <== :scripts] base-scripts)
+(cache-check "no-match-dispatch" [cache-target <== [:tag 6]] '(:base 6))
+[[meta cache-target] <= [:remove-script [:tag 0]]]
+(cache-check "base-removed" (length [[meta cache-target] <== :scripts]) 1)
+(cache-check "state-after-remove" [cache-target <== :keep] 7)
+[[meta cache-target] <= [:add-script (first base-scripts)]]
+(cache-check "base-reinstalled" [cache-target <== [:tag 8]] '(:base 8))
+(cache-check "state-after-reinstall" [cache-target <== :keep] 7)
+(format t "~&CACHE-END~%")
+:q

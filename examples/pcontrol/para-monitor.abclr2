@@ -1,0 +1,48 @@
+;;; -*- Mode:abcl1; -*-
+;;; Parallelism watcher
+
+[object p-monitor
+  (meta-gen non-reifying-meta)
+  (state [ao := nil]
+	 [oc := nil]
+	 [active-counter := 0]
+	 [object-counter := 0]
+	 [clock := 0]
+	 [running := nil])
+  (script
+   (=> :tick
+       [clock := (1+ clock)])
+   (=> :record
+       (when running
+	 (format ao "~D ~D~%" clock active-counter)
+	 (format oc "~D ~D~%" clock object-counter)))
+   (=> :object-start
+       [active-counter := (+ active-counter 1)]
+       [Me <= :record])
+   (=> :object-stop
+       [active-counter := (- active-counter 1)]
+       [Me <= :record])
+   (=> :object-create
+       [object-counter := (1+ object-counter)]
+       [Me <= :record])
+   (=> :object-dead
+       [object-counter := (1- object-counter)]
+       [Me <= :record])
+   (=> :reset
+       [active-counter := 0]
+       [object-counter := 0])
+   (=> [:monitor pathname-for-active pathname-for-creation]
+       [running := t]
+       [clock := 0]
+       [ao := (open pathname-for-active
+		    :direction :output
+		    :if-exists :supersede
+		    :if-does-not-exist :create)]
+       [oc := (open pathname-for-creation
+		    :direction :output
+		    :if-exists :supersede
+		    :if-does-not-exist :create)])
+   (=> :stop
+       [running := nil]
+       (close ao)
+       (close oc)))]

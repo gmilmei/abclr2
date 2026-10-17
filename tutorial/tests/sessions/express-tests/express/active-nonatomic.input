@@ -1,0 +1,16 @@
+(defun express-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&EXPRESS-PASS ~A~%" name)
+  (error "EXPRESS-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/express-tests/express/express" :use-source t)
+(inc "@ROOT@/build/express-tests/express/express-ex" :use-source t)
+; Exercise the original second phase directly, including its completion chain.
+(express-check "first-original-nonatomic-run" [test <== :start-non-atomic] :finished)
+[first-count := [clock <== :peek]]
+(express-check "first-stopped-clock-readable" (and (integerp first-count) (>= first-count 0)) t)
+(express-check "second-original-nonatomic-run" [test <== :start-non-atomic] :finished)
+[second-count := [clock <== :peek]]
+(express-check "second-stopped-clock-readable" (and (integerp second-count) (>= second-count 0)) t)
+(express-check "state-retained-between-runs" (>= second-count first-count) t)
+(format t "~&EXPRESS-END~%")
+:q

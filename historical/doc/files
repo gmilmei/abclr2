@@ -1,0 +1,60 @@
+;;; FILES -*- Mode: Text -*-
+
+This file describes the contents of this ABCL/R2 distribution.  Since
+we tried to insert as much comments in each file as possible,  please
+refer them for more information.
+----------------------------------------------------------------------
+abclr2:                  ; the root directory of this distribution
+ Makefile		 ; the make file, see doc/install for detail
+ doc			 ; documentations
+ examples		 ; some example programs
+ lib			 ; run-time library programs are stored
+ src			 ; source Lisp programs are stored
+
+abclr2/doc:
+ acknowledgements.text	 ; many thanks... 
+ files			 ; this file
+ history		 ; version history
+ install		 ; a guide for installation
+ readme			 ; please read this file first
+ readme-mcl.text	 ; additional information for MCL users
+ users-guide-j		 ; User's Guide (In Japanese/Kanji)
+ users-guide-e		 ; User's Guide (In English)
+
+abclr2/examples:
+ misc
+ pcontrol		 ; parallelism control via meta-level
+ time-warp		 ; TimeWarp+Scheduling
+
+abclr2/examples/misc:
+ MCP.abclr2		 ; meta-circular definition for kernel objects
+ break.abclr2            ; break & inspect environment
+ built-ins.abclr2	 ; protocols for bulit-in objects
+ express-ex.abclr2	 ; a sample program with express messages
+ future-ex.abclr2	 ; a sample program with future messages
+ inherit.abclr2		 ; an implementation of inheritance mechanism
+ reify-args.abclr2	 ; a sample program showing the usage of reify-args
+ user-script.abclr2	 ; user-defined script object example
+
+abclr2/examples/pcontrol:
+ ;; This directory contains a program to control parallelism control
+ ;; via meta-level.  Please read REDAME.abclr2 file in this direcotry
+ ;; for detail.
+
+abclr2/examples/time-warp:
+ ;; This directory contains a program TimeWarp simulation with
+ ;; metalevel scheduling.  Please read README.abclr2 file in this
+ ;; directory for detail.
+
+abclr2/lib:
+ copy.abclr2		 ; for making a "copy" of an object (used in report)
+ express.abclr2		 ; metaobject definition for express messages
+ future.abclr2		 ; object definition for future type messages
+ heavy-meta.abclr2	 ; metaobject definition for "where" form
+ multicast.abclr2	 ; object definitions for multicasting
+ report.abclr2		 ; metaobject that reports its behavior
+ watch.abclr2		 ; an evaluator that reports every message sends
+
+abclr2/src:
+ ;; This directory contains source files building ABCL/R2 system.
+

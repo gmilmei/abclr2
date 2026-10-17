@@ -1,0 +1,10 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc-lib "@ROOT@/build/group-tests/lib/heavy-meta-old" :use-source t)
+[group audit-group (meta-gen heavy-meta)]
+[object audit-target (group audit-group) (state [born-group := [group-of Me]]) (script (=> :owner !Group) (=> :born !born-group))]
+(group-context :heavy-old [audit-target <== :owner] audit-group)
+(group-check-nrm :heavy-old audit-target audit-group [group-of heavy-meta])
+(group-check :initializer-owner [audit-target <== :born] audit-group)
+(format t "~&GROUP-END~%")
+:q

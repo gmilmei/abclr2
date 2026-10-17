@@ -1,0 +1,146 @@
+;;; Time Warp: a Metaobject of an Application Object
+;;; Feb. 12, 1992 by MASUHARA, H.
+
+;; [:message M R S] --- normal message
+;; [:message M R S VST VRT] --- Time Warp message
+;; [:anti-message M R S VST VRT] --- Time Warp message (cancelling)
+[object TW-meta-gen
+  ;; (meta-gen non-reifying-meta)
+  (state [monitor := nil])
+  (script
+   (=> [:set-monitor m]
+       [monitor := m])
+   (=> :count @ R [monitor <= :count @ R])
+   (=> :monitor !monitor)
+   (=> [:new StateSpec LexEnv Scripts Eval GMgr] @ C
+       (temporary [TW-meta := nil])
+       [object TW-meta
+	 ;;(meta-gen non-reifying-meta)
+	 (state [queue := nil]
+		[pqueue := nil]		; priority queue
+		[state := nil]
+		[output-history := nil]	; output history
+		[scriptSet := scripts]
+		[evaluator := Eval]
+;; PORT-BEGIN: Expose ownership as Group; retain Group-manager for execution.
+;;|		[Group-manager := GMgr]
+;; PORT-ACTIVE
+		[Group-manager := GMgr] [Group := GMgr]
+;; PORT-END
+		[mode := ':dormant]
+		[LVT := 0])		; local virtual time
+	 (script
+	  ;; ordinary messages
+	  (=> [:message Message Reply Sender]
+	      ;;(print "GOT MESSAGE")
+	      [queue <= [:enq [Message Reply Sender]]]
+	      (when (eq mode ':dormant)
+		[mode := ':active]
+		[Me <= :begin]))
+	  (=> :begin
+	      ;;(print "BEGIN SCRIPT")
+	      (match [queue <== :deq]
+		(is [Message Reply Sender]
+		    (match (find-script Message Reply Sender scriptSet)
+		      (is [Bindings ScriptBody]
+			  [evaluator 
+			   <= [:do
+				  ScriptBody [env-gen <== [:new Bindings state]]
+				  Me Group-manager evaluator
+				  output-history LVT]
+			   @ [cont _
+				   [Me <= :end]]])
+		      (otherwise
+		       (warn "~S cannot handle the message ~S"
+			     [den Me] Message))))))
+	  (=> :end
+	      ;;(print "END SCRIPT")
+	      (if (not [queue <== :empty?])
+		  [Me <= :begin]
+		  (if (not [pqueue <== :empty?]) ; check priority queue
+		      [Me <= :begin-tw]
+		      [mode := ':dormant])))
+	  ;; Time Warp messages
+	  (=> [Type Message Reply Sender VST VRT]
+	      ;; where (member Type '(:message :anti-message))
+	      #+COMMENT
+	      (format t  "~&~S: GOT TW ~S ~S from ~S" 
+		      [den Me] Type Message Sender)
+	      [pqueue <= [:enq [Type Message Reply Sender VST VRT]]]
+	      (when (eq mode :dormant)
+		[mode := ':active]
+		[Me <= :begin-tw]))
+	  (=> :begin-tw
+	      ;;(print "BEGIN TW SCRIPT")
+	      (if [queue <== :empty?]
+		  (match [pqueue <== :deq]
+		    (is [Type Message Reply Sender VST VRT]
+			;;(print (list type message))
+			(if (and (eq Type :message) (>= VRT LVT))
+			    ;; positive message
+			    (progn
+			      ;;(format t "clock proceeds ~D to ~D" LVT VRT)
+			      [state <= [:push LVT]]
+			      [LVT := VRT]
+			      (match (find-script Message Reply Sender scriptSet)
+				(is [Bindings ScriptBody]
+				    [evaluator 
+				     <= [:do ScriptBody
+					  [env-gen <== [:new Bindings state]]
+					  Me Group-manager evaluator
+					  output-history LVT]
+				     @ [cont _
+					     [Me <= :end]]])
+				(otherwise
+				 (warn "~S cannot handle the message ~S"
+				       [den Me] Message))))
+					;; negative message
+			    (progn
+			      ;;(print "ROLLBACK!")
+			      [monitor <= :rollback]
+			      [LVT := [state <== [:rollback-to VRT]]]
+			      (format t "~&~S back to ~D by ~S~%" 
+				      [den Me] LVT
+				      [Type Message Reply Sender VST VRT])
+			      [pqueue <= [:rollback-to VRT]]
+			      ;; (format t "Input queue will be ~S~%" [pqueue <== :show])
+			      [[anti-messenger-gen <== [:new Me]]
+			       <== [output-history <== [:history-since VRT]]]
+			      [Me <= :end]))))
+		  [Me <= :begin]))
+
+	  (=> [:init s q pq oh]
+	      [state := s] [queue := q]
+	      [pqueue := pq] [output-history := oh])
+	  )]
+       [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		  LexEnv TW-meta GMgr Eval]
+             @ [cont initValues
+		     ;;(print "GOT INITVALUES")
+		     [TW-meta
+		      <= [:init
+			  [undoable-env-gen 
+			   <== [:new (pairlis (stateSpec-varNames stateSpec)
+					      initValues)
+				     LexEnv]]
+			  [queue-gen <== :new]
+			  [undoable-pqueue-gen <== :new]
+			  [output-history-gen <== :new]]]
+		     [C <= TW-meta]]]
+       ))]
+
+[object anti-messenger-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new TW-meta]
+       ![object anti-messenger
+	  (meta-gen non-reifying-meta)
+	  (script
+	   (=> nil !:fin)
+	   (=> (bracket* [Target Message Reply VST VRT]
+			 rest-history) @ R
+               (format t "~&Cancelling ~S" [Target Message Reply VST VRT])
+	       [[meta Target]
+                <= [:anti-message Message Reply [den TW-meta]
+                                  VST VRT]]
+	       [Me <= rest-history @ R]))]))]

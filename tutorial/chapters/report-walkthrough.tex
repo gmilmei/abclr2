@@ -1,0 +1,201 @@
+\subsection{Report: Observe Arrivals and Script Execution}
+\label{sec:report}
+
+Where \code{watch} observes outgoing evaluator send requests,
+\filepath{lib/report.abclr2} observes the receiving object's dispatch
+cycle. It supplies a replacement metaobject generator,
+\code{meta/report-gen}, that reports arrivals, dispatch attempts, and
+completed script bodies. The public \code{report} macro copies the
+application object using this generator and rebinds its name to the copy.
+This is not an evaluator wrapper installed on the original object.
+
+Read Section~\ref{sec:copy} first. The copy retains references to scripts
+and the outer lexical environment, but has a new object identity and queue.
+The original Copy library's state-initializer limitation also applies:
+do not assume that \code{report} can instrument arbitrary stateful
+objects on this image. Our first client deliberately has no local state.
+
+\subsubsection{Start with the Public Macros}
+
+The supplemental \filepath{tutorial/examples/13-report.abclr2} explicitly
+loads Copy before Report, whose original source requires Copy. Its
+application and saved alias are:
+
+\wholelisting[firstline=5,lastline=11]{tutorial/examples/13-report.abclr2}
+
+The \code{:silent} handler intentionally sends no application reply.
+Start with a request that does reply:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "tutorial/examples/13-report" :use-source t)
+(report report-subject)
+(eq report-subject report-original)       ; => NIL
+[report-subject <== [:echo 7]]            ; => 7, plus reports
+(noreport report-subject)
+(eq report-subject report-original)       ; => T
+\end{lstlisting}
+\end{codeblock}
+
+The macro takes a symbol naming an object, not an arbitrary expression.
+Its three keyword options, \code{:message}, \code{:begin}, and
+\code{:end}, all default to \code{t}. For example,
+\code{(report report-subject :message nil :end nil)} selects only begin
+reports. Disabling all three options suppresses printed reports but
+still creates a copy; it does not make \code{report} a no-op.
+
+Here is the original macro's construction sequence:
+
+\wholelisting[firstline=30,lastline=37]{lib/report.abclr2}
+
+The copier creates a new object with \code{meta/report-gen}; the macro
+retrieves its default reporter, wraps it in a filter, saves the pair
+\code{(new-object . previous-object)} in \code{*reporting-objects*},
+installs the filter, and finally rebinds the supplied name. Other aliases
+still denote the previous object. Requests through \code{report-original}
+therefore bypass this new reporting metaobject.
+
+\subsubsection{Follow One Dispatch Cycle}
+
+Compare the original receive and begin handlers:
+
+\wholelisting[firstline=60,lastline=79]{lib/report.abclr2}
+
+The reporting protocol is
+\code{[:report metaObject type [Message Reply Sender]]}.
+Its identity field is the application's \emph{metaobject};
+\code{[den metaObject]} gives the application object. The final triple
+retains the received payload, application reply destination, and sender.
+These are not the evaluator's completion continuation.
+
+For a matching request, follow three distinct boundaries:
+
+\begin{enumerate}
+  \item \code{:message}: the metaobject receives a \code{:message}
+        envelope and reports it before enqueuing the triple. If dormant,
+        it becomes active and sends itself \code{:begin}.
+  \item \code{:begin}: it dequeues a triple and reports it \emph{before}
+        looking for a matching script. Bindings from a successful match
+        extend the object's state environment for body evaluation.
+  \item \code{:end}: the evaluator calls the supplied \code{cont} after
+        the body finishes. That continuation sends an end report and the
+        metaobject's internal \code{:end} request. The latter either
+        starts another queued request or makes the object dormant.
+\end{enumerate}
+
+Thus a begin report means a dispatch attempt, not proof that a script
+matched. An end report means that this body returned through evaluator
+completion, not that all downstream work finished. A script may reply
+early and continue working; another may finish without replying at all.
+In our \code{:silent} case, a past-type send produces all three events
+although there is no application answer. Do not call it with \code{<==}
+and expect the end report to satisfy the waiting caller.
+
+Reports themselves are past-type messages. The event order for one
+completed request is arrival, begin, end, but reports from different
+objects may interleave. They add work and cannot establish the timing
+or scheduling of an uninstrumented run.
+
+\subsubsection{Record the Actual Protocol Fields}
+
+The teaching file includes a non-reifying recorder. This keeps the
+diagnostic handler simple and avoids recursively instrumenting it:
+
+\wholelisting[firstline=13,lastline=20]{tutorial/examples/13-report.abclr2}
+
+In a fresh session after loading the file, replace the copy's reporter:
+
+\begin{codeblock}
+\begin{lstlisting}
+(report report-subject :message nil :begin nil :end nil)
+[[meta report-subject] <= [:set-reporter report-recorder]]
+[report-subject <== [:echo 7]]
+[events := [report-recorder <== :events]]
+(mapcar #'second events)                 ; => (:MESSAGE :BEGIN :END)
+(mapcar #'(lambda (e) (first (third e))) events)
+; => ((:ECHO 7) (:ECHO 7) (:ECHO 7))
+\end{lstlisting}
+\end{codeblock}
+
+Each record is \code{(metaObject type triple)}. The lambda only transforms
+its ordinary Lisp argument; it neither captures ABCL variables nor sends
+messages. Pass context explicitly if a host helper needs it.
+
+\code{:set-reporter} replaces the \emph{whole} reporter chain. The macro's
+earlier keyword filter is no longer in that path, so the recorder receives
+all three event types. To select only end events while retaining structured
+records, install a new filter:
+
+\begin{codeblock}
+\begin{lstlisting}
+[only-end := [standard-filter-gen <== [:new report-recorder
+                         :message nil :begin nil :end t]]]
+[[meta report-subject] <= [:set-reporter only-end]]
+[report-recorder <== :reset]
+[report-subject <== [:echo 8]]
+(mapcar #'second [report-recorder <== :events])
+; => (:END)
+(noreport report-subject)
+\end{lstlisting}
+\end{codeblock}
+
+The generator's message requires all three named fields in this order;
+it is an object protocol, not a Common Lisp keyword-argument function.
+The filter forwards enabled events unchanged and drops disabled ones.
+It does not suppress application messages or change script execution.
+Reporter installation uses \code{<=}: the setter promises no application
+reply, so changing it to \code{<==} would introduce a wait with no answer.
+
+\paragraph{Reading the default report.}
+Prefer structured records when interpreting reply and sender identities.
+The \code{default-reporter} receives \code{[M R S]} and passes those
+fields to \code{default-reporting-function} in the same order.
+Its \code{from} field prints the sender; \code{reply=} prints the
+application reply destination, not the evaluation continuation.
+Either field can be \code{nil}. Printed objects and messages are abbreviated by
+\code{*print-length*} and \code{*print-level*}. Do not use the displayed
+names or labels as a substitute for the recorded triple.
+
+\subsubsection{Restoration and the Limits of Instrumentation}
+
+\code{noreport} looks up the current object in \code{*reporting-objects*},
+removes its association, and rebinds the supplied name to the saved object.
+It does not destroy the reporting copy, remove other aliases, drain its
+queue, or merge changes back into the previous object. A retained alias
+to the copy still runs and reports after \code{noreport}.
+
+Repeated \code{report} creates successive copies, not multiple reporting
+layers around the same object. Each copy has its own reporting metaobject;
+it does not forward dispatch through the previous copy's metaobject.
+With an intact registry, successive \code{noreport} calls restore the
+previous copy and then the original. This differs from Watch's repeated
+installation limit (Section~\ref{sec:watch}). Do not confuse this name
+history with a general facility for rolling back application effects.
+
+For an active application, copying is not an atomic snapshot. Existing
+references still target the old object. Pending queue entries preserve
+their original reply and sender references; Copy installs them with
+\code{:enqueue}, not \code{:message}, so they do not acquire new arrival
+reports merely by being copied. They also do not start simply because
+the copy was returned. Follow the explicit \code{:begin} rules in
+Section~\ref{sec:copy}, and do not manually start an already active
+metaobject. This book uses an idle, empty-state subject to keep those
+separate issues out of the first experiment.
+
+\paragraph{Check your understanding.}
+Will \code{report-original} start reporting when the other name is rebound?
+\emph{Answer:} No; it retains the old object identity. Does an end report
+replace \code{!} for the application caller? \emph{Answer:} No; evaluator
+completion and application replies have separate destinations. Does
+\code{noreport} stop a reporting copy held under another alias?
+\emph{Answer:} No; it restores one binding, not every reference.
+
+\paragraph{What the checks establish.}
+Fifty-nine bounded probes check identities, alias preservation, event
+triples, all eight filter combinations, repeated copying/restoration,
+completion without an application reply, and dispatch state.
+The formatter checks cover arguments and output for all three event types
+and \code{nil} reply/sender fields. Run \code{make -C tutorial report-check}; copies,
+inputs and transcripts remain in \filepath{build/report-tests/}.
+These are bounded observations, not certification of arbitrary stateful
+copying or transparent instrumentation.

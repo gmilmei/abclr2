@@ -1,0 +1,104 @@
+\subsubsection{Read the Original in Three Passes}
+
+First identify the participants. \code{print-leaves} coordinates one request,
+\code{tree2leaves} produces leaf replies, and \code{printer} performs output.
+A future object buffers the replies between producer and consumer.
+The file's first expression loads that library; the three object
+definitions then establish the application's protocol.
+
+Second read the consumer. Its \code{temporary} bindings belong to one
+handler invocation: \code{leaf} holds the current value and \code{leaves}
+is a fresh future. The dollar send starts the walker without waiting for
+the entire traversal. Each \code{next-value} removes one reply or waits
+until one arrives. The consumer forwards ordinary leaf values to the
+printer and stops when it sees the keyword \code{:finish}.
+
+Third read the producer's loop. Its \code{tree} variable is a working
+representation of the remaining traversal, not an unchanged input tree.
+The first two \code{match} clauses rewrite the remaining work.
+The third sends one reply and removes the emitted head.
+Only one matching clause executes on an iteration.
+
+\begin{longtable}{L{0.27\textwidth}L{0.63\textwidth}}
+\textbf{Pattern} & \textbf{How to read it}\\\hline
+\endhead
+\code{[[A] . B]} & The head is a one-element proper list.
+Remove that extra layer, keeping the outer tail \code{B}.\\
+\code{[[A . B] . C]} & The head is a nonempty pair.
+Make its head and tail the next two pending items, followed by \code{C}.\\
+\code{[A . B]} & The outer head is the next leaf.
+Send \code{A} and continue with the outer tail \code{B}.\\
+\end{longtable}
+
+These patterns overlap. A one-element list is also a pair, so the first
+clause must precede the second. A nested pair is also an outer head, so
+the structural clauses precede the emission clause.
+Uppercase names in the source are binding variables, not literal
+symbols that the tree must contain.
+
+\subsubsection{Trace a Small Tree Completely}
+
+Use the data \code{'((a b) (c . d))}; it exercises both a proper nested
+list and a dotted pair. The following is a logical trace of the walker,
+not a claim about how its messages interleave with printing.
+Unquoted uppercase letters in the table denote the already quoted
+input symbols, not new variable lookups.
+
+\begin{longtable}{L{0.30\textwidth}L{0.13\textwidth}L{0.32\textwidth}L{0.12\textwidth}}
+\textbf{Before iteration} & \textbf{Clause} & \textbf{After iteration} &
+\textbf{Reply}\\\hline
+\endhead
+\code{((A B) (C . D))} & 2 & \code{(A (B) (C . D))} & none\\
+\code{(A (B) (C . D))} & 3 & \code{((B) (C . D))} & \code{A}\\
+\code{((B) (C . D))} & 1 & \code{(B (C . D))} & none\\
+\code{(B (C . D))} & 3 & \code{((C . D))} & \code{B}\\
+\code{((C . D))} & 2 & \code{(C D)} & none\\
+\code{(C D)} & 3 & \code{(D)} & \code{C}\\
+\code{(D)} & 3 & \code{nil} & \code{D}\\
+\end{longtable}
+
+On the first iteration, pattern variables are \code{A = 'a},
+\code{B = '(b)}, and \code{C = '((c . d))}.
+The construction \code{[A B . C]} puts the value of \code{A} first,
+the value of \code{B} second, and uses \code{C} as the final tail.
+It therefore preserves the remaining work while exposing the next leaf.
+When the working list becomes \code{nil}, the loop exits and the handler
+sends one more reply: \code{:finish}.
+
+The original sample's longer input adds further rewrites but follows
+the same rules. It yields \code{A B C D E F G}.
+No recursive call to \code{tree2leaves} is necessary: the loop and
+rewrites implement the traversal.
+
+\subsubsection{Where Does Completion Travel?}
+
+Distinguish three message paths:
+\begin{enumerate}[nosep]
+  \item The top-level request goes to \code{print-leaves}. Its past-type
+        send does not wait for a return value.
+  \item Leaf values and the terminal keyword go from \code{tree2leaves}
+        to the future's reply destination, then to the waiting consumer.
+  \item The consumer sends each leaf to \code{printer} without requesting
+        a reply. Printing is a side effect, not the future stream.
+\end{enumerate}
+The terminal marker tells the consumer that no more leaf values are part
+of this request. It does not acknowledge completion of every printer
+handler, and the consumer does not reply to its original sender.
+Changing the outer invocation to a now-type send would therefore require
+adding an application completion protocol; merely changing the arrow
+would not create a reply.
+
+\paragraph{Understanding check.}
+Why is a leaf equal to the keyword \code{:finish} problematic?
+The consumer would treat that data value as the terminal marker.
+The original example assumes its data does not contain that marker.
+Tagged values such as \code{[:value x]} solve the ambiguity, as in the
+later stream exercise. Why not use \code{all-values} as a completion test?
+Its buffer snapshot does not say whether the producer has finished.
+
+\paragraph{A boundary of the original algorithm.}
+The loop expects an outer proper list of pending items.
+An empty nested list can be emitted as a \code{nil} leaf by the final
+pattern; it is not automatically skipped as an empty subtree.
+Read the actual patterns rather than assuming the behavior of a
+general-purpose tree-flattening function.

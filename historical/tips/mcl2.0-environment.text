@@ -1,0 +1,93 @@
+;;; -*- Mdoe: Text; -*-
+
+This file contains a enhancements for the ABCL/R2 environment on MCL
+(Macintosh Common Lisp), contributed by Yasuaki Honda.
+
+1. To evaluate expressions from a non-listener window, modify the
+definition of function read-from-abclr2-listener in toplevel.lisp as
+follows.
+
+------------------------------------------------------------
+(defun read-from-abclr2-listener ()
+  (unless (and *abclr2-listener* (ccl::wptr *abclr2-listener*))
+    (setq *abclr2-listener* (make-instance 'abclr2-listener)))
+  (unless (ccl:window-shown-p *abclr2-listener*)
+    (ccl:window-show *abclr2-listener*))
+  ;; Modified by Y.Honda @ Sony CSL.
+  ;; ccl::toplevel-read returns '(NIL) if eval queue is not empty.
+  (let ((input (ccl::toplevel-read)))
+    (if (equal input '(NIL))
+      (ccl::get-next-queued-form)
+      input)))
+------------------------------------------------------------
+
+2. Following file defines commands to evaluate expressions in a
+buffer.
+
+------------------------------------------------------------
+;;;-*- Mode: Lisp; Package: COMMON-LISP-USER -*-
+;;;
+;;; mcl2.0-environment.lisp
+;;; Y.Honda (Sony CSL)
+;;;
+;;; This code needs paren.lisp
+;;;
+
+(in-package :CL-USER)
+
+(defun r2sys::eval-string (string)
+  (with-input-from-string (input-stream string)
+    (do ((abclr2-exp (read input-stream nil :EOF nil)
+                     (read input-stream nil :EOF nil)))
+        ((eq abclr2-exp :EOF))
+      (eval-enqueue abclr2-exp))))
+
+(defun r2sys::eval-buffer ()
+  (let ((buf-string (buffer-substring (fred-buffer (front-window))
+                                      0 t)))
+    (r2sys::eval-string buf-string)))
+
+(defun r2sys::eval-selection ()
+  (let ((win (front-window)))
+    (multiple-value-bind (start end)
+                         (selection-range win)
+      (r2sys::eval-string (buffer-substring (fred-buffer win) start end)))))
+
+
+(defun install-menu-item (menu-title menu-item-title action-function)
+  (let ((item (find-menu-item (find-menu menu-title) menu-item-title)))
+    (if item
+      (set-menu-item-action-function item action-function)
+      (add-menu-items (find-menu menu-title)
+                      (make-instance 'menu-item
+                        :menu-item-title menu-item-title
+                        :menu-item-action action-function)))))
+
+(if (not (find-menu-item (find-menu "Eval") "ABCL Eval Buffer"))
+  (progn 
+    (add-menu-items (find-menu "Eval")
+                    (make-instance 'menu-item :menu-item-title "-"))
+    (install-menu-item "Eval" "ABCL Eval Buffer" #'r2sys::eval-buffer)
+    (install-menu-item "Eval" "ABCL Eval Selection" #'r2sys::eval-selection)))
+
+(defun r2sys::ed-eval-bwd-sexp (window)
+  (let* ((buf (fred-buffer window))
+         (pos (buffer-position buf))
+         (up-position (ccl::my-buffer-bwd-up-sexp buf (1- pos))))
+    (r2sys::eval-string (buffer-substring buf up-position pos))))
+
+(def-fred-command #\Enter r2sys::ed-eval-bwd-sexp
+  "Eval bwd s-expression as abcl form.")
+
+(defun r2sys::ed-select-bwd-sexp (window)
+  (let* ((buf (fred-buffer window))
+         (pos (buffer-position buf))
+         (up-position (ccl::my-buffer-bwd-up-sexp buf (1- pos))))
+    (set-selection-range window up-position pos)))
+
+(defmethod view-click-event-handler :around ((window ccl::fred-window) where)
+  (if (ccl:double-click-p)
+    (r2sys::ed-select-bwd-sexp window)
+    (call-next-method window where))
+  (fred-update window))
+

@@ -1,0 +1,193 @@
+;;; -*- Mode: ABCL1 -*-
+;;; copy.abclr2
+;;; Make a copy of an object.
+;;; Nov. 22, 1992 by MASUHARA, H.
+
+(provide 'copy)
+
+#|
+To make a copy of an object:
+[copyObject := [copier <== [:copy originalObject]]]
+[copyObject := [copier <== [:copy originalObject :group newGroup]]]
+[copyObject := [copier <== [:copy originalObject :meta-gen newMetaGen]]]
+
+When the original object has messages that are not accepted (executed)
+yet, they are also copied into the copy object.  The copy object does
+not start its execution unless a :begin message is sent to its metaobject
+(i.e., [[meta copyObject] <= :begin]).
+
+(copy sym &key group meta-gen)		[macro]
+
+This macro copies an object into same name.
+
+|#
+
+(defmacro copy (objSym &key group meta-gen)
+  (when (and group meta-gen)
+    (abclr2-system::abclr2-error "Group and meta-gen cannot be ~
+                                  specified simulataneously."))
+  (cond (group
+         `[,objSym := [copier <== [:copy ,objSym :group ,group]]])
+        (meta-gen
+         `[,objSym := [copier <== [:copy ,objSym :meta-gen ,meta-gen]]])
+        (t
+         `[,objSym := [copier <== [:copy ,objSym]]])))
+
+[object copier
+ (meta-gen non-reifying-meta)
+ (script
+  ;;
+  ;; Copy to a new group.
+  ;; An evaluator and a metaobject generator used by the new object
+  ;; is the ones of the specified group.
+  ;;
+  (=> [:copy anObject :group GMgr] @ R
+      (temporary [messages := [[meta anObject] <== :queue]]
+                 [state := [[meta anObject] <== :state]]
+                 [scripts := [[meta anObject] <== :scripts]])
+      (let ((stateSpec (alist->stateSpec [state <== :alist]))
+            (lexEnv [state <== :lexEnv]))
+        [GMgr
+         <= [:new stateSpec lexEnv scripts] 
+         @ [cont newMeta
+            (set-copied-name newMeta [meta anObject])
+            [message-setter <= [:set messages newMeta] @ R]]]))
+  ;;
+  ;; Copy by using a specific metaobject generator and a specific
+  ;; evaluator. 
+  ;;
+  (=> [:copy anObject :meta-gen new-meta-gen :eval eval] @ R
+      (temporary [messages := [[meta anObject] <== :queue]]
+                 [state := [[meta anObject] <== :state]]
+                 [scripts := [[meta anObject] <== :scripts]]
+                 [GMgr := (abclr2-system::group-of anObject)])
+      (let ((stateSpec (alist->stateSpec [state <== :alist]))
+            (lexEnv [state <== :lexEnv]))
+        [new-meta-gen
+         <= [:new stateSpec lexEnv scripts eval GMgr]
+         @ [cont newMeta
+            (set-copied-name newMeta [meta anObject])
+            [message-setter <= [:set messages newMeta] @ R]]]))
+  ;;
+  ;; Copy by using a specific metaobject generator.
+  ;; An evaluator used by the new object is same to the original's.
+  ;;
+  (=> [:copy anObject :meta-gen new-meta-gen] @ R
+      (temporary [eval := [[meta anObject] <== :evaluator]])
+      [Me <= [:copy anObject :meta-gen new-meta-gen :eval eval] @ R])
+  ;;
+  ;; Simple copy.  A new object is created at the same group.
+  ;;
+  (=> [:copy anObject] @ R
+      (temporary [GMgr := (abclr2-system::group-of anObject)])
+      [Me <= [:copy anObject :group GMgr] @ R])
+  )]
+
+(defun set-copied-name (newMeta originalMeta)
+  (let* ((original-name
+          (abclr2-system::object-data-name 
+           (abclr2-system::den-of originalMeta)))
+         (new-name
+          (typecase original-name
+            (symbol 
+             (intern (string-upcase (format nil "~S-copy" original-name))))
+            (string
+             (intern
+              (string-upcase
+               (format nil "~A-copy"
+                       (if (and (string= "#<" original-name :end2 2)
+                                (char= #\>
+                                       (aref original-name
+                                             (1- (length original-name)))))
+                         (string-right-trim "0123456789-"
+                                            (subseq original-name 2
+                                                    (- (length original-name)
+                                                       1)))
+                         original-name))))))))
+    (rename-internal (abclr2-system::den-of newMeta) new-name)))
+
+;;; A name of an object is changed to the given name.  This process is
+;;; implementation dependant.
+(defun rename-internal (object name)
+  (setf (abclr2-system::object-data-name object) name)
+  (do ((meta (abclr2-system::object-data-meta object)
+             (abclr2-system::object-data-meta meta)))
+      ((null meta))
+    (setf (abclr2-system::object-data-name meta) nil))
+  (do ((den (abclr2-system::object-data-den object)
+            (abclr2-system::object-data-den den)))
+      ((null den))
+    (setf (abclr2-system::object-data-name den) nil)))
+
+;;; An association list is translated into a form which is used for
+;;; the creation of an object.
+(defun alist->stateSpec (alist)
+  (let ((spec (mapcar #'(lambda (pair)
+;; PORT-BEGIN: Capture each value in the thunk required by :self-evaluate.
+;;|                          (cons (car pair)
+;;|                                (list ':self-evaluate (cdr pair))))
+;; PORT-ACTIVE
+                          (let ((value (cdr pair))) (cons (car pair)
+                                (list ':self-evaluate #'(lambda () value)))))
+;; PORT-END
+                      alist)))
+    ;; Here is a trick to reduce some implementation dependancy. 
+    ;; An environment for an object is created using function
+    ;; PAIRLIS, and PAIRLIS can return the result in any order.  For
+    ;; example, (pairlis '(a b c) '(1 2 3)) yields ((C . 3) (B . 2) (A . 1))
+    ;; in MCL, ((A . 1) (B . 2) (C . 3)) in some Lisp (CMU-CL?).
+    ;; For this reason, the following code try to absorb the effect of
+    ;; PAIRLIS dependancy assuming that the returned value of PAIRLIS is
+    ;; based on the order of initial argument (same or reversed).
+    ;; Note that this trick depends on the way to creation of an
+    ;; environment, and the way to get the alist of the environment.
+    ;; Also note that this the situation saved by this trick is VERY
+    ;; subtle and unusual (variables having name in an environment!).
+    (if (cdr (assoc 'x (pairlis '(x x) '(t nil))))
+      ;; PAIRLIS seems to keep the given oreder.
+      spec
+      ;; PAIRLIS seems to return reversed result.
+      (nreverse spec))))
+
+;;; Message-setter places messages in the newly-created metaobject.
+;;; The metaobject does not start its execution before receiving a
+;;; :begin message.
+[object message-setter
+ (meta-gen non-reifying-meta)
+ (script
+  (=> [:set messages newMeta]
+      (dolist (message messages)
+        [newMeta <= [:enqueue message]])
+      ;; [newMeta <= :begin]
+      ![den newMeta]))]
+
+copier
+
+#|
+;; Since the copier copies messages stored in a queue of an original
+;; object, a copy object sometimes seems to be funny.
+[object fib
+ (script
+  (=> 0 !0)
+  (=> 1 !1)
+  (=> n @ R
+      (temporary
+       [collector := 
+        [object collector
+         (state [half-result := nil])
+         (script
+          (=> result
+              (if half-result
+                [R <= (+ half-result result)]
+                [half-result := result])))]])
+      [Me <= (- n 1) @ collector]
+      [Me <= (- n 2) @ collector]))]
+
+(let ((x 5) (n 10))
+  [fib <= x @ [cont result (format t "~&Fib(~D)=~D" x result)]]
+  (dotimes (dummy n)
+    ;; do nothing
+    )
+  [fib-copy := [copier <== [:copy fib]]]
+  [[meta fib-copy] <= :begin])
+|#

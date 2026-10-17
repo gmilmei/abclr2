@@ -1,0 +1,34 @@
+;;; Time Warp: output history
+;;; Feb. 14, 1992 by MASUHARA, H.
+
+;; [:push <Target Message Reply VST VRT>]
+;; [:history-since <Time>]
+
+[object output-history-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> :new
+       ![object output-history
+	  (meta-gen non-reifying-meta)
+	  (state [history := nil])	   
+	  (script
+	   (=> [:push Target Message Reply VST VRT]
+	       [history
+		:= (cons [Target Message Reply VST VRT] history)])
+	   (=> [:history-since VRT]
+	       (temporary
+		[sep := (separate-list
+			 (funcall
+			  #'(lambda (Time)
+			      #'(lambda (record)
+				  (< (fourth record) Time)))
+			  VRT)
+			 history)])
+	       #+COMMENT
+	       (format t "~&%%%Back to ~D~
+			  ~&%%%Cancelled=~S~
+	                  ~&%%%Retained=~S"
+		       VRT (first sep) (second sep))
+	       !(first sep)
+	       [history := (second sep)])
+	   (=> :show !history))]))]

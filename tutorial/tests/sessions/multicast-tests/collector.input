@@ -1,0 +1,20 @@
+(defun multicast-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&MULTICAST-PASS ~A~%" name)
+  (error "MULTICAST-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/multicast-tests/10-multicast" :use-source t)
+[collector := [result-collector-gen <== :new]]
+[collector <= [:init [nil nil] 2] @ multicast-inbox]
+[collector <= [:result 7 [:car]]]
+(multicast-check "one-result-pending" [multicast-inbox <== :status] '(0 nil))
+[collector <= [:result 9 [:car]]]
+(multicast-check "duplicate-position-premature-reply" [multicast-inbox <== :status] '(1 (9 nil)))
+[collector <= [:result 10 [:cdr :car]]]
+(multicast-check "late-result-mutates-delivered-list" [multicast-inbox <== :status] '(1 (9 10)))
+(multicast-check "no-second-aggregate" (first [multicast-inbox <== :status]) 1)
+[multicast-inbox <== :reset]
+[zero := [result-collector-gen <== :new]]
+[zero <= [:init [:label nil] 0] @ multicast-inbox]
+(multicast-check "zero-init-no-reply" [multicast-inbox <== :status] '(0 nil))
+(format t "~&MULTICAST-END~%")
+:q

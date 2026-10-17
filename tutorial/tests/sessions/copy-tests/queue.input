@@ -1,0 +1,20 @@
+(defun copy-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&COPY-PASS ~A~%" name)
+  (error "COPY-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/copy-tests/11-copy" :use-source t)
+[object copy-inbox (state [values := nil]) (script (=> :values !(reverse values)) (=> value [values := (cons value values)]))]
+[[meta copy-source] <= [:enqueue [[:echo 42] copy-inbox copy-source]]]
+[queued-clone := [copier <== [:copy copy-source]]]
+(copy-check "source-queue-preserved" (length [[meta copy-source] <== :queue]) 1)
+(copy-check "clone-queue-copied" [[meta queued-clone] <== :queue] (list (list (list :echo 42) copy-inbox copy-source)))
+(copy-check "no-start-on-copy" [copy-inbox <== :values] nil)
+[[meta queued-clone] <= :begin]
+(copy-check "copied-request-replied" [copy-inbox <== :values] '(42))
+(copy-check "clone-queue-drained" [[meta queued-clone] <== :queue] nil)
+(copy-check "source-request-still-pending" (length [[meta copy-source] <== :queue]) 1)
+[[meta copy-source] <= :begin]
+(copy-check "both-copies-use-original-reply" [copy-inbox <== :values] '(42 42))
+(copy-check "source-queue-drained" [[meta copy-source] <== :queue] nil)
+(format t "~&COPY-END~%")
+:q

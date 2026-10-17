@@ -1,0 +1,156 @@
+;;; Fault tolerance (?) in ABCL/R2
+
+;; Description:
+
+;; A FT (fault tolerant) metaobject (1) tests a condition for each
+;; message acceptance, and (2) invokes a recovery method upon the
+;; failure of acceptance.  More precisely, assume that an object A
+;; sends a message to an object B, where both A and B have FT
+;; metaobjects.  The FT metaobject of B tests a condition for the
+;; message, and then sends a rejection message to the FT metaobject of
+;; A when the condition fails.  The FT metaobject A will try to
+;; recover the condition, and it may send the message again when it
+;; decides the condition will hold.
+;;
+;; 1. A  ----message---> B
+;; 2.                   [meta B] checks a condition
+;; 3.                   condition fails !
+;; 4. [meta A] <-reject- [meta B]
+;; 5. [meta A] try to recover
+;; 6. [meta A] --------> B (retry the message send)
+
+[object FT-meta-gen
+ (script
+  (=> [:new StateSpec LexEnv Scripts Eval GMgr . Extra] @ R
+      (if Extra
+	(warn "~S ignores extra arguments ~S" Me Extra))
+      [object Metaobject
+       (state [queue := [queue-gen <== :new]]
+	      [state := nil]
+	      [scriptSet := scripts]
+	      [evaluator := Eval]
+;; PORT-BEGIN: Expose ownership as Group; retain Group-manager for execution.
+;;|	      [Group-manager := GMgr]
+;; PORT-ACTIVE
+	      [Group-manager := GMgr] [Group := GMgr]
+;; PORT-END
+	      [mode := ':dormant]
+
+	      ;; This state variable indicates the object has
+	      ;; executed a ":initialize" message so far.
+	      ;; NOTE: this variables is introduced just for an
+	      ;; example.
+	      [initialized := nil])
+
+       (script
+
+	;; Rejection of a message is notified to the metaobject of
+	;; the sender.  The metaobject may try to recover the condition.
+	;; In this example, it sends an initialization message to the
+	;; receiver object, and then sends the rejected message again.
+	(=> [:reject Receiver Message Reply Sender]
+	    ;; An initialization request. 
+	    [Receiver <= [:initialize]]
+	    ;; Message retransmission.
+	    [[meta Receiver] <= [:message Message Reply Sender]])
+	
+	(=> [:message Message Reply Sender]
+	    [queue <= [:enq [Message Reply Sender]]]
+	    (when (eq mode ':dormant)
+	      [mode := ':active]
+	      [Me <= :begin]))
+	(=> :begin
+	    (match [queue <== :deq]
+	      (is [Message Reply Sender]
+
+		  ;; The following expression checks for the
+		  ;; invocation of :initialize method.  If it is
+		  ;; invoked, the variable initilaized will turned
+		  ;; to be T.
+		  (match Message
+		    (is [:initialize . _]
+			[initialized := t]))
+
+		  ;; The following expression tests whether a message
+		  ;; is acceptable or not.  In this example, any messages
+		  ;; cannot be accepted before initialization.
+		  (if (not initialized)
+		      (progn
+			;; A rejection message is sent to the metaobject
+			;; of the sender.
+			[[meta Sender] ;;?
+			 <= [:reject [den Me] Message Reply Sender]]
+			;; Process next messages
+			[Me <= :end])
+		  
+		      ;; Acceptance of messages
+		      (match (find-script Message Reply Sender scriptSet)
+			(is [Bindings ScriptBody]
+			    [evaluator 
+			     <= [:do
+				 ScriptBody [env-gen <== [:new Bindings state]]
+				 Me Group-manager evaluator]
+			     @ [cont _
+				     [Me <= :end]]])
+			(otherwise
+			 (warn "~S cannot handle the message ~S"
+			       [den Me] Message)))))))
+	(=> :end
+	    (if (not [queue <== :empty?])
+	      [Me <= :begin]
+	      [mode := ':dormant]))
+	;; reflective operations
+	(=> :state !state)
+	(=> [:set-state s]
+	    [state := s])
+	(=> :queue @ R
+	    [queue <= :listify @ R])
+	(=> :dequeue @ R
+	    [queue <= :deq @ R])
+	(=> [:enqueue item]
+	    [queue <= [:enq item]])
+        (=> :scripts !scriptSet)
+	(=> [:find-script Message]
+	    !(search-script Message nil nil scriptSet))
+	(=> [:add-script new-script]
+	    [scriptSet := (cons new-script ScriptSet)])
+	(=> [:remove-script Message]
+	    [scriptSet := (remove-script Message nil nil ScriptSet)])
+        (=> :evaluator !evaluator)
+        (=> [:set-evaluator e] [evaluator := e])
+	)]
+      ;; initialize state variables
+      [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		 LexEnv Metaobject GMgr Eval]
+	    @ [cont initValues
+		    [Metaobject
+		     <= [:set-state
+			 [env-gen 
+			  <== [:new (pairlis (stateSpec-varNames stateSpec)
+					     initValues)
+				    LexEnv]]]]
+		    [R <= Metaobject]]]))]
+
+[object server
+  (meta-gen FT-meta-gen)
+  (state [amount := nil])
+  (script
+   (=> [:initialize]
+       [amount := 0])
+   (=> [:count-up n]
+       [amount := (+ amount n)]
+       (format t "~&Count is ~D." amount)))]
+
+[object client
+  (meta-gen FT-meta-gen)
+  (script
+   (=> [:start server]
+       [server <= [:count-up 10]])
+   (=> [:initialize]
+       ;; do nothing
+       ))]
+
+#|
+[client <= [:initialize]]
+[client <= [:start server]]
+|#

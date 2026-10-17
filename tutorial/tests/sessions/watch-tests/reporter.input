@@ -1,0 +1,19 @@
+(defun watch-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&WATCH-PASS ~A~%" name)
+  (error "WATCH-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/watch-tests/12-watch" :use-source t)
+[original := [[meta watch-driver] <== :evaluator]]
+(watch watch-driver)
+(watch-check "default-reporter-result" [watch-driver <== [:now :default-probe]] :default-probe)
+(nowatch watch-driver)
+(watch-check "public-macro-restores" [[meta watch-driver] <== :evaluator] original)
+[filtered := [reporter-gen <== [:new
+ :pred #'(lambda (type args context cont) (eq type :send-now))
+ :format #'(lambda (type args context cont)
+             (format nil "WATCH-FILTER ~S" (second args)))]]]
+[watch-manager <= [:watch-object watch-driver filtered]]
+(watch-check "filtered-result" [watch-driver <== [:now :filter-probe]] :filter-probe)
+(nowatch watch-driver)
+(format t "~&WATCH-END~%")
+:q

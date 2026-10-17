@@ -1,0 +1,16 @@
+
+(defun guard-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&GUARD-PASS ~A~%" name)
+  (error "GUARD-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/guard-tests/lib/heavy-meta" :use-source t)
+(inc "@ROOT@/build/guard-tests/original-counter" :use-source t)
+
+[counter <= :unknown]
+(guard-check "unmatched-request-removed" [[meta counter] <== :queue] nil)
+[counter <= [:value]]
+(guard-check "later-request-left-queued" (length [[meta counter] <== :queue]) 1)
+(guard-check "state-remains" [[[meta counter] <== :state] <== [:value-of 'c]] 0)
+
+(format t "~&GUARD-END~%")
+:q

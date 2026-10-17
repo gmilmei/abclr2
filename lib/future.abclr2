@@ -1,0 +1,117 @@
+;;; -*- Mode: ABCL1; -*-
+;;; future.abclr2
+;;; Future type messages transmission in ABCL/R2.
+;;; Jul. 14, 1992 by MASUHARA, H.
+;;; Jul. 18, 1992 --- Script for future is embedded into evaluator.
+;;; Jul. 25, 1992 --- Future object is reseted at the creation time.
+
+;;
+;; This file must be loaded before using future type messages.
+;;
+
+#|
+Syntax:
+
+(MAKE-FUTURE)				; create a future object 
+(RESET-FUTURE fo)			; reset a future object fo
+(READY? fo)				; ask fo having any message
+(NEXT-VALUE fo &key (:REMOVE nil))	; get (or peek) one message
+(ALL-VALUES fo &key (:WAIT t) (:REMOVE nil)) ; get (or peek) all messages
+|#
+
+(provide 'future)
+
+#|;; Following macros are moved to src/user.lsp.
+(defmacro make-future () 
+  (let ((future-object (gensym)))
+    `(let ((,future-object [future-object-generator <== :new]))
+      [,future-object <= :reset]
+      ,future-object)))
+(defmacro reset-future (future-object)
+  `[,future-object <= :reset])
+(defmacro ready? (future-object)
+  `[,future-object <== :ready?])
+(defmacro next-value (future-object &key (remove t))
+  `[,future-object <== [:next-value ,remove]])
+(defmacro all-values (future-object &key (wait t) (remove t))
+  `[,future-object <== [:all-values ,wait ,remove]])
+|#
+
+[object future-object-generator
+  (meta-gen non-reifying-meta)
+  (script
+   (=> :new
+       ![object future
+	  (meta-gen non-reifying-meta)
+	  (state [message-queue := nil]
+		 [reply-dest := nil]
+		 [message-waiter := nil]
+		 [waiter-remove-p := nil])
+	  (script
+	   (=> :reset
+	       [message-queue := nil]
+	       [reply-dest
+		:= [cont reply-message [Me <= [:reply reply-message]]]]
+	       [message-waiter := nil])
+	   (=> :ready?
+	       !(not (null message-queue)))
+	   (=> [:next-value remove-p] @ R
+	       (if message-queue
+		   ;; If message-queue is not empty, a message at the head of
+		   ;; queue is returned.
+		   (progn
+		     [R <= (first message-queue)]
+		     (when remove-p
+		       [message-queue := (rest message-queue)]))
+		   ;; If message-queue is empty, this query is recorded into
+		   ;; message-waiter.
+		   (progn
+		     [message-waiter := R]
+		     [waiter-remove-p := remove-p])))
+	   (=> [:all-values wait-p remove-p] @ R
+	       (cond
+		 ;; If message-queue is not empty, all messages in
+		 ;; message-queue is returned.
+		 (message-queue
+		  [R <= message-queue]
+		  (when remove-p
+		    [message-queue := nil]))
+		 ;; If message queue is empty and wait-p is t, this request is
+		 ;; recorded into message-waiter.
+		 (wait-p
+		  [message-waiter := R]
+		  [waiter-remove-p := remove-p])
+		 ;; When message queue is empty and wait-p is nil, nil is
+		 ;; returned.
+		 (t [R <= nil])))
+	   (=> [:reply message]
+	       [message-queue := (nconc message-queue (list message))]
+	       (if message-waiter
+		   [Me <= [:next-value waiter-remove-p] @ message-waiter]))
+	   (=> :reply-dest !reply-dest))]
+       ))]
+
+#|
+;; Attach a script code to an evaluator so that it can handle
+;; future type messages.
+;; This code is outdated because (1) it is embedded to primary
+;; evaluators, and (2) future type message transmission is now
+;; represented by a message [:send-future T M R].
+[object install-future
+  (script
+   (=> [:install evaluator]
+       [[meta evaluator]
+	<= [:add-script
+	    [script
+	     (=> [:do [:send-past Target Message _ :future FutureObject]
+		      Env Id Gid Eval] @ C
+		 [C <= nil]
+		 (if (and (not (null Target))
+			  (not (null FutureObject)))
+		     [FutureObject
+		      <= :reply-dest
+		      @ [cont reply-dest
+			      [[meta Target]
+			       <= [:message Message reply-dest [den Id]]]]]))
+	     ]]]))]
+|#

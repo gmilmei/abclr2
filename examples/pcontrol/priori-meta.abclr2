@@ -1,0 +1,63 @@
+;;; -*- Mode:abcl1; -*-
+;;; Metaobject with priority
+;;; This metaobject produces active/inactive events to "p-monitor".
+
+[object priori-meta-gen
+  (script
+   (=> [:new StateSpec LexEnv Scripts Eval GMgr Priori] @ R
+       [p-monitor <= :object-create]
+       [object Metaobject
+	 (meta-gen non-reifying-meta)
+	 (state [queue := [queue-gen <== :new]]
+		[state := nil]
+		[scriptSet := scripts]
+		[evaluator := Eval]
+		[Group-manager := GMgr]
+		[mode := ':dormant]
+		[priority := Priori])
+	 (script
+	  (=> [:message Message Reply Sender]
+	      [queue <= [:enq [Message Reply Sender]]]
+	      (when (eq mode ':dormant)
+		[mode := ':active]
+		[Me <= :begin]
+		[p-monitor <= :object-start]))
+	  (=> :begin
+	      (match [queue <== :deq]
+		(is [Message Reply Sender]
+		    (match (find-script Message Reply Sender scriptSet)
+		      (is [Bindings ScriptBody]
+			  [evaluator 
+			   <= [:do ScriptBody
+				[env-gen <== [:new Bindings state]]
+				Me Group-manager evaluator
+				priority]
+			   @ [cont _
+				   [Me <= :end]]])
+		      (otherwise
+		       (warn "~S cannot handle the message ~S"
+			     [den Me] Message))))))
+	  (=> :end
+	      (if (not [queue <== :empty?])
+		  [Me <= :begin]
+		  (progn [mode := ':dormant]
+			 [p-monitor <= :object-stop])))
+	  (=> [:set-state s]
+	      [state := s])
+		   
+	  )]
+;; PORT-BEGIN: Set the known owner before initialization; NRM state remains opaque.
+;; PORT-ACTIVE
+       (setf (r2sys::object-data-gid [den Metaobject]) GMgr)
+;; PORT-END
+       [Eval
+	<= [:do-evlis (stateSpec-initforms StateSpec)
+	     LexEnv Metaobject GMgr Eval Priori]
+	@ [cont initValues
+		[Metaobject 
+		 <= [:set-state
+		     [env-gen 
+		      <== [:new (pairlis (stateSpec-varNames stateSpec)
+					 initValues)
+				LexEnv]]]]
+		[R <= Metaobject]]]))]

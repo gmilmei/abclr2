@@ -1,0 +1,17 @@
+(defun multicast-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&MULTICAST-PASS ~A~%" name)
+  (error "MULTICAST-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/multicast-tests/lib/multicast" :use-source t)
+@MULTICAST-ORIGINAL-SESSION@
+(multicast-check "original-result" [[twice square identity] <== 12] '(24 144 12))
+(multicast-check "nested-literals" [[twice [square :label] identity nil] <== 12] '(24 (144 :label) 12 nil))
+(multicast-check "duplicate-occurrences" [[twice twice] <== 3] '(6 6))
+(multicast-check "single-object-fallback" [identity <== 7] 7)
+[decomposed := (pickup-target-objects (list twice (list square :label) identity nil))]
+(multicast-check "template" (car decomposed) '(nil (nil :label) nil nil))
+(multicast-check "positions-reversed-traversal"
+ (mapcar #'cdr (cdr decomposed))
+ '((:cdr :cdr :car) (:cdr :car :car) (:car)))
+(format t "~&MULTICAST-END~%")
+:q

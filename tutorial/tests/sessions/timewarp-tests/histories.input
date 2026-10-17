@@ -1,0 +1,38 @@
+
+(defun tw-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&TW-PASS ~A~%" name)
+      (error "TW-FAIL ~A got ~S expected ~S" name actual expected)))
+
+(inc "tw-undo-env" :use-source t)
+(inc "tw-undoable-pqueue" :use-source t)
+(inc "tw-output-history" :use-source t)
+[e := [undoable-env-gen <== [:new (list (cons 'x 0)) nil]]]
+(tw-check "initial-binding" [e <== [:value-of 'x]] 0)
+[e <= [:push 0]]
+[e <== [:set 'x 5]]
+[e <= [:push 10]]
+[e <== [:set 'x 8]]
+(tw-check "latest-binding" [e <== [:value-of 'x]] 8)
+(tw-check "rollback-time" [e <== [:rollback-to 5]] 0)
+(tw-check "restored-binding" [e <== [:value-of 'x]] 0)
+[q := [undoable-pqueue-gen <== :new]]
+[q <= [:enq [:message :a nil nil 0 2]]]
+[q <= [:enq [:message :b nil nil 0 4]]]
+(tw-check "input-first" [q <== :deq] '(:message :a nil nil 0 2))
+(tw-check "input-second" [q <== :deq] '(:message :b nil nil 0 4))
+[q <= [:rollback-to 3]]
+(tw-check "replayed-input" [q <== :deq] '(:message :b nil nil 0 4))
+(tw-check "input-empty" [q <== :empty?] t)
+[q <= [:enq [:message :c nil nil 1 6]]]
+[q <= [:enq [:anti-message :c nil nil 1 6]]]
+(tw-check "pending-cancellation" [q <== :empty?] t)
+[h := [output-history-gen <== :new]]
+[h <= [:push :target :old nil 1 10]]
+[h <= [:push :target :new nil 5 20]]
+(tw-check "output-cut" [h <== [:history-since 4]] '((:target :new nil 5 20)))
+(tw-check "retained-output" [h <== :show] '((:target :old nil 1 10)))
+(tw-check "cut-is-destructive" [h <== [:history-since 4]] nil)
+
+(format t "~&TW-END~%")
+:q

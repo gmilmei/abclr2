@@ -1,0 +1,173 @@
+\subsection{The Original Express Clocks}
+\label{sec:original-express}
+
+The breakpoint could wait for an inspector's reply. A running clock poses
+a different problem: how can a new request affect a handler that has
+not finished? An ordinary object finishes one script before starting the next queued
+request. This creates a problem for a clock whose \code{:start} script
+loops until another request sets \code{stop}: an ordinary stop request
+waits behind the very script it must stop. Express messages provide an
+alternative dispatch policy, not faster transport or operating-system
+threads. Read \filepath{examples/misc/express-ex.abclr2} with
+\filepath{lib/express.abclr2}; its older companion uses
+\filepath{lib/express-old.abclr2}.
+
+\paragraph{Configuration and the application first.}
+The original group installs both halves of the protocol:
+
+\wholelisting[firstline=9,lastline=12]{examples/misc/express-ex.abclr2}
+
+The evaluator recognizes express sends; the metaobject generator equips
+receivers to accept them. Both \code{clock} and \code{test} belong to this
+group. A keyword in a send does not by itself change the primary evaluator
+or the receiver's ordinary queue policy. The top-level only sends an
+ordinary request to \code{test}; express sends occur inside that object.
+
+The clock starts with \code{time = 0} and \code{stop = nil}.
+Its \code{:start} script resets only \code{stop}, not \code{time}:
+
+\wholelisting[firstline=19,lastline=31]{examples/misc/express-ex.abclr2}
+
+In Common Lisp, \code{(do () (stop) ...)} has no loop variables and tests
+\code{stop} before each iteration. \code{(dotimes (i 5))} runs five empty
+iterations; it is neither a delay in seconds nor a clock measurement.
+Each completed pair adds two. The intermediate value between increments
+is odd, so excluding express observation of that intermediate state is
+the point of \code{atomic}. Without it, an odd sample is permitted, not
+guaranteed: a particular schedule may still produce only even samples.
+
+\wholelisting[firstline=44,lastline=50]{examples/misc/express-ex.abclr2}
+
+The comments calling these scripts ``express'' do not declare a special
+kind of script. The \emph{send} chooses the mode; an ordinary \code{:peek}
+uses the same matching script. \code{:peek} replies with the current count.
+\code{:stop} changes a binding but does not reply. Stopping is completed
+when the resumed loop notices that binding and replies \code{:finished}.
+
+\par\noindent\begin{minipage}{\linewidth}
+\paragraph{Following the controller's two phases.}
+The controller supplies the orchestration rather than the clock itself:
+\par\vspace*{\medskipamount}
+
+\wholelisting[firstline=55,lastline=71]{examples/misc/express-ex.abclr2}
+\end{minipage}\par
+
+Trace the original \code{[test <== :start]} as follows:
+
+\begin{enumerate}
+  \item \code{R} is the caller's reply destination. The controller sends
+  \code{clock} an ordinary asynchronous \code{:start}, attaching a
+  continuation instead of waiting for the loop to finish.
+  \item Twenty now-type express \code{:peek} requests each wait for one
+  count and print it. They are sequential observations by this controller,
+  not twenty simultaneous requests.
+  \item A past-type express \code{:stop} requests the state change without
+  waiting for a reply that the stop script never sends.
+  \item The clock's \code{:finished} reply invokes the continuation.
+  Its \code{\_} discards that value and sends \code{Me} a request for the
+  second phase, explicitly retaining \code{R}.
+  \item The second phase repeats the experiment without the paired
+  increments' atomic wrapper. The count continues from the first phase.
+  Its completion continuation sends \code{:end} to the controller.
+  \item Only \code{:end}'s \code{!:finished} answers the original caller.
+\end{enumerate}
+
+Thus the immediate controller script finishing, an express peek replying,
+and the entire two-phase test completing are three different events.
+Replacing the asynchronous start by a now-type start would prevent this
+controller from issuing its peeks and stop. Replacing stop by a now-type
+stop would wait for a nonexistent application reply.
+
+\paragraph{How the newer library interrupts evaluation.}
+The generator creates a dispatcher, a metaobject, and an evaluator front
+end for each receiver. The dispatcher finds the script and constructs
+its binding environment over the object's persistent state. The front
+end forwards ordinary evaluation to the group's evaluator, but can
+retain the next \code{[:do . Context]} request instead of executing it.
+This is cooperative interruption at an evaluator boundary: it cannot
+stop a host Lisp operation halfway through its machine instructions.
+
+\begin{longtable}{L{0.18\textwidth}L{0.72\textwidth}}
+\textbf{Mode} & \textbf{Intended handling of an arriving express request}\\\hline
+\endhead
+\code{:dormant} & Dispatch it directly; there is no normal script to suspend.\\
+\code{:active} & Ask the front end to \code{:grab}; save the normal
+evaluation request and its completion destination, then dispatch the express script.\\
+\code{:express} & Queue it; one express script does not preempt another.\\
+\code{:lock} & Queue it until the atomic region releases the lock.\\
+\end{longtable}
+
+Normal arrivals during active, express, or locked execution enter the
+normal queue. At an express script's completion, the intended order is
+pending express requests, resumption of the saved normal context, and
+then queued normal requests. The saved context includes the destination
+\code{R} of the evaluator request, not necessarily the application
+caller's reply destination. Resuming it must preserve evaluation's
+completion path as well as expression and environment.
+
+The \code{atomic} macro in \filepath{src/user.lsp} asks \code{[meta Me]}
+for a now-type \code{:lock}, evaluates its body, sends a past-type
+\code{:release}, and returns the body's last value. In the newer library,
+locking saves the previous mode and sets \code{:lock}; releasing restores
+that mode and can start an express request deferred during normal
+execution. This is object-local protection against this express protocol,
+not a transaction over all objects. The macro uses no unwind-protection:
+do not infer automatic release after an error or a non-local exit.
+
+\paragraph{Why the older peek locks too.}
+The July version has no grabbing front end or suspended normal context.
+It dispatches express scripts without putting them into the normal
+message queue, while normal evaluation can continue. Its
+\code{express-count} tracks outstanding express executions. A separate
+lock object stores waiting reply destinations and grants them in order.
+Both a writer and an observer must acquire that same receiver-local lock:
+
+\wholelisting[firstline=41,lastline=46]{examples/misc/express-old-ex.abclr2}
+
+An unlocked read in that version could run between the two protected
+increments, because the reader does not participate in the lock protocol.
+The newer example deliberately removes \code{atomic} from \code{:peek}:
+under its intended suspension policy, the normal writer cannot advance
+while the express reader executes, and a reader arriving during a locked
+pair must wait. These are different algorithms, not interchangeable files.
+
+Both libraries define the same public generator names and provide the
+feature \code{express}. Compare them in separate fresh sessions, explicitly
+loading the matching library first. The old example's \code{require}
+otherwise names \code{express}, not \code{express-old}; its commented
+sample also still names \code{express-ex}. Use the actual old filename:
+
+\begin{codeblock}
+\begin{lstlisting}
+; New version, in a fresh session:
+(inc-lib "lib/express" :use-source t)
+(inc "examples/misc/express-ex" :use-source t)
+
+; Old version, in a different fresh session:
+(inc-lib "lib/express-old" :use-source t)
+(inc "examples/misc/express-old-ex" :use-source t)
+\end{lstlisting}
+\end{codeblock}
+
+\paragraph{Connect the reading to the first experiment.}
+The idle-clock exchange introduced earlier isolates sender configuration,
+reply forwarding, and the receiver's express dispatch.
+Read \code{:start-non-atomic} next: it starts normal clock work, samples
+the value, sends stop, and waits for the clock's completion reply.
+Follow the roles of the two reply destinations separately before tracing
+the atomic phase.
+
+The queue-handling branches dequeue the selected envelope and bind
+\code{[Message Reply Sender]} before dispatch. Compare this with the
+saved execution context: an envelope describes an application request,
+whereas the saved context describes suspended expression evaluation.
+The \code{express-check} sessions provide short examples of both
+library versions, queue order, and reply routing.
+
+\paragraph{Check your understanding.}
+Why is \code{:stop} sent asynchronously? Why is \code{time} not reset
+between phases? Could the non-atomic phase print only even values? Why
+does configuring only the clock fail to establish express sending?
+Answers: stop has no reply; only \code{stop} is reset; scheduling need
+not expose an odd intermediate state; and the sender's evaluator must
+translate the extra send argument into the express meta-level protocol.

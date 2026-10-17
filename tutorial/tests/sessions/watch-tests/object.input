@@ -1,0 +1,31 @@
+(defun watch-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&WATCH-PASS ~A~%" name)
+  (error "WATCH-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/watch-tests/12-watch" :use-source t)
+[original-eval := [[meta watch-driver] <== :evaluator]]
+[watch-manager <= [:watch-object watch-driver watch-recorder]]
+[wrapper := [[meta watch-driver] <== :evaluator]]
+(watch-check "new-evaluator" (eq wrapper original-eval) nil)
+(watch-check "original-evaluator-query" [wrapper <== :original-evaluator] original-eval)
+(watch-check "now-result" [watch-driver <== [:now 7]] 7)
+(watch-check "past-result" [watch-driver <== [:past 8]] :submitted)
+(watch-check "future-result" [watch-driver <== [:future 9]] 9)
+[events := (watch-target-events [watch-recorder <== :events] watch-target)]
+(watch-check "send-types" (mapcar #'first events) '(:send-now :send-past :send-future))
+(watch-check "payloads" (mapcar #'(lambda (event) (second (second event))) events) '(7 8 9))
+(watch-check "context-sender" (r2sys::den-of (second (third (first events)))) watch-driver)
+(nowatch watch-driver)
+(watch-check "restored-evaluator" [[meta watch-driver] <== :evaluator] original-eval)
+[watch-recorder <== :reset]
+[watch-driver <== [:now 10]]
+(watch-check "no-events-after-disable" [watch-recorder <== :events] nil)
+[object watched-state (state [n := 7]) (script (=> :increment [n := (1+ n)] !n) (=> :value !n))]
+[state-frame := [[meta watched-state] <== :state]]
+[watch-manager <= [:watch-object watched-state watch-recorder]]
+(watch-check "stateful-object-result" [watched-state <== :increment] 8)
+(watch-check "state-frame-not-copied" [[meta watched-state] <== :state] state-frame)
+(nowatch watched-state)
+(watch-check "state-after-restoration" [watched-state <== :value] 8)
+(format t "~&WATCH-END~%")
+:q

@@ -1,0 +1,150 @@
+\section{Working from the Original Examples}
+\label{sec:originals}
+
+Read each project from the application's request to its result before
+following the machinery underneath. The tree walker uses the futures
+you already know. The next projects connect the reflection introduction
+to lazy control forms, inheritance, and interpreters; only then do we
+combine those mechanisms in libraries, debugging, and scheduling.
+Pcontrol and Time Warp are the longest projects and can be studied in
+separate sessions. Appendix~\ref{sec:source-map} is a return map to their
+files, not an alternative order in which to learn the concepts.
+
+These projects follow the distributed programs in \filepath{examples/}.
+The calculator, account service, and job service are teaching extensions;
+use them to prepare for reading the original applications.
+Line references use code-only views, omitting source-maintenance comments.
+
+\paragraph{Read each result in its own protocol.}
+The reflective examples contain several overlapping conversations.
+Use this key when following a destination or an apparent completion:
+
+\noindent\begin{minipage}{\linewidth}
+\begin{longtable}{L{0.27\textwidth}L{0.63\textwidth}}
+\textbf{Conversation} & \textbf{What its response establishes}\\\hline
+Application request & A reply answers the application's caller.
+Its destination is often named \code{R} or \code{Reply}.\\
+Expression evaluation & A result sent to an evaluation continuation,
+often \code{C}, finishes that expression, not necessarily the work
+it has requested elsewhere.\\
+Object dispatch & A \code{:end} message in the ordinary dispatch cycle
+lets the metaobject advance its queue; it is not a reply to the client.\\
+Object creation & A generator's reply supplies a new metaobject to
+the creation machinery; it is not an application-method result.\\
+\end{longtable}
+\end{minipage}
+
+The names are conventions in the examples, not fixed roles for every
+variable with that spelling. A now-type send can use its evaluation
+continuation as the application's reply destination, deliberately joining
+two of these paths. Follow the actual sends before deciding that two
+destinations are different, or that one result means all work is complete.
+
+\subsection{Tree Leaves: The Original Future Protocol}
+\label{sec:original-future}
+
+\filepath{examples/misc/future-ex.abclr2} supplies a useful
+starting point: a producer walks a nested tree and sends its leaves
+through a future. Here is its original producer, without adaptation:
+
+\wholelisting[firstline=17,lastline=30]{examples/misc/future-ex.abclr2}
+
+The first two patterns reshape nested list structure; the third emits a
+leaf and advances. Notice that \code{!A} occurs more than once for one
+request. The final \code{!:finish} terminates the application protocol,
+not the future mechanism itself.
+The original consumer makes this explicit:
+
+\wholelisting[firstline=36,lastline=46]{examples/misc/future-ex.abclr2}
+
+In a fresh session using the rebuilt port at the repository root,
+load the unchanged original source:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "examples/misc/future-ex" :use-source t)
+[print-leaves <= '((a b) (c (d . e) f) g)]
+; Prints A, B, C, D, E, F, G on separate lines.
+\end{lstlisting}
+\end{codeblock}
+
+Loading interactively writes generated translations next to the sources.
+For an isolated run that writes only under \filepath{build/}, use the
+example checks in Appendix~\ref{sec:book-build}.
+This book's range producer deliberately removes the tree-walking
+detail while retaining this reply-stream and sentinel protocol.
+Once you understand it, return to the original and trace each pattern
+against \code{((a b) (c (d . e) f) g)} by hand.
+
+\input{tutorial/chapters/future-walkthrough}
+
+\subsection{Lazy Evaluation: The Original IF with EF}
+\label{sec:original-if}
+
+The first example in \filepath{examples/misc/reify-args.abclr2} contrasts
+an ordinary function with a reflective control form.
+The function \code{ef} selects between already evaluated arguments:
+
+\sourcelisting[firstline=21,lastline=22]{examples/misc/reify-args.abclr2}
+
+The custom evaluator instead receives representations of expressions.
+It evaluates the predicate first and then uses \code{ef} to select which
+branch representation to execute:
+
+\wholelisting[firstline=24,lastline=39]{examples/misc/reify-args.abclr2}
+
+The original sample session calls \code{[:ef 3]} and \code{[:my-if 3]}.
+Both return 2, but the ordinary function prints both \emph{Even} and \emph{Odd};
+the reflective form prints only \emph{Odd}. Equal return values alone would
+miss the evaluation-order distinction.
+This book's \code{choice-group} is a teaching extension of this
+original protocol, using a state marker to make branch selection testable.
+
+Study the two experiments separately. The first occupies code-only lines
+1--51; Section~\ref{sec:interrupt} follows the interrupt experiment.
+The example checks prepare separate executable excerpts for these projects.
+After running them, load the first experiment and compare the calls:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "build/original-tests/reify-first" :use-source t)
+[my-if-test <== [:ef 3]]     ; prints Even and Odd; returns 2
+[my-if-test <== [:my-if 3]]  ; prints Odd; returns 2
+\end{lstlisting}
+\end{codeblock}
+
+\input{tutorial/chapters/interrupt-walkthrough}
+
+\input{tutorial/chapters/inherit-walkthrough}
+
+\input{tutorial/chapters/reflection-walkthrough}
+
+\input{tutorial/chapters/guards-walkthrough}
+
+\input{tutorial/chapters/multicast-walkthrough}
+
+\input{tutorial/chapters/copy-walkthrough}
+
+\input{tutorial/chapters/watch-walkthrough}
+
+\input{tutorial/chapters/report-walkthrough}
+
+\input{tutorial/chapters/retry-walkthrough}
+
+\input{tutorial/chapters/break-walkthrough}
+
+\input{tutorial/chapters/express-walkthrough}
+
+\input{tutorial/chapters/pcontrol-walkthrough}
+
+\input{tutorial/chapters/timewarp-walkthrough}
+
+\subsection{Navigating the Original Sources}
+
+Appendix~\ref{sec:source-map} maps every original example file and
+library to its reading section and role. Use it to return to a helper
+after following the corresponding application trace; it is not a new
+instruction to load every file separately. The directory READMEs are
+historical instructions, built-ins is a schematic protocol sketch, and
+\code{tw-scheduler} is unfinished. Their presence in the source tree
+does not make them independent executable demonstrations.

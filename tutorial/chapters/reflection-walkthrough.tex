@@ -1,0 +1,321 @@
+\subsection{Reading the Built-in Protocol Sketches}
+\label{sec:builtin-reading}
+
+Inheritance used an environment, scripts, and a queue. Before reading
+another metaobject generator, inspect those components in
+\filepath{examples/misc/built-ins.abclr2}. It describes environments,
+script objects, and queues in familiar object notation. It is a
+\emph{protocol sketch}, not a replacement runtime to load:
+angle-bracket placeholders, spelling mistakes such as \code{Nmae}
+and \code{Vlaue}, an extra bracket, and the \code{:bound} fallback
+prevent that interpretation. Consult \filepath{src/primary-env.lsp}
+and \filepath{src/primary-queue.lsp} for the supplied implementations.
+
+An environment is an object representing variable bindings. Its local
+frame is an association list: \code{((n . 2) (limit . 10))}
+binds \code{n} to 2. A second environment, \code{lexEnv},
+represents the enclosing lexical scope.
+
+\wholelisting[firstline=9,lastline=20]{examples/misc/built-ins.abclr2}
+
+Trace a lookup of \code{limit}: \code{assoc} finds its pair, and
+\code{cdr} supplies 10 to the reply destination. If no local pair exists,
+the request goes outward, preserving \code{@ R}.
+A local binding whose value is \code{nil} still counts:
+the test examines the pair, not its value. Assignment by \code{:set}
+updates the nearest existing binding; it does not necessarily create a
+new local binding. The actual implementation also accepts
+\code{[:set-local Name Value]}, updating or creating a binding in
+this frame. The evaluator uses this when naming a new object.
+\code{:alist} and \code{:lexEnv} inspect the frame and its parent.
+The global environment ends the chain and reports an unbound lookup.
+The sketch's outer \code{:bound} request is a typo, not a second
+protocol: the implementation forwards \code{:boundp}.
+
+A script object separates two jobs usually hidden by a handler
+declaration. \code{[:match Message Reply Sender]} returns either
+\code{nil} for failure or \code{[Bindings ExecutableExpression]} for
+success. The bindings are an association list; the executable expression
+may be \code{[:script ScriptObject]}. The evaluator then asks that object
+to execute with \code{[:exec Env Id Gid Eval] @ C}. Here \code{Env}
+contains the bindings, \code{Id} is the current metaobject identity,
+\code{Gid} the group manager, \code{Eval} the evaluator, and \code{C}
+the execution continuation. Pattern and body inspection are separate
+requests, not commands to run the script.
+
+The queue sketch stores arrivals by \code{cons} at the front and removes
+the last element. Arrivals A, then B produce \code{(B A)}, but dequeue
+returns A first: this is \emph{first in, first out} (FIFO), not a stack. Its \code{waiters}
+list similarly retains reply destinations for dequeue requests made
+while empty. Such a request need not stop the queue from accepting a
+later enqueue. The built-in queue uses lower-level machinery instead;
+do not infer that its storage representation is this pair of lists.
+It additionally provides \code{:listify}, used by the metaobjects below.
+
+\paragraph{Check your understanding.}
+An inner frame is \code{((n . nil))}; its parent binds \code{n} to 7.
+What does looking up \code{n} return? \emph{Answer:} \code{nil},
+because the local binding shadows the parent's binding.
+Would storing A with \code{cons} make it the next queue item?
+\emph{Answer:} only if no older item exists; removal is from the
+opposite end.
+
+\subsection{A Script Object with a Sender-sensitive Match}
+\label{sec:user-script-reading}
+
+The sketch separated script matching from execution; now follow an
+executable script object in \filepath{examples/misc/user-script.abclr2}.
+Loading it creates four objects; the installation commands at the end
+are inside a block comment and must be issued separately.
+\code{Monkey} initially replies \emph{Scratch!} to any message.
+\code{Monkey-Showman} and \code{Poor-Audience} each handle \code{:try}
+by sending \code{:play-trick} to Monkey and forwarding their caller's
+reply destination. Monkey sees different \emph{senders}
+even though the requests have the same content.
+
+The fourth object, \code{monkey-script}, implements the script-object
+contract. It is not Monkey's application handler until installed
+in Monkey's script set. For \code{:play-trick}, its match method tests
+\code{(eq Sender Monkey-Showman)}. On success, it returns two elements:
+
+\begin{codeblock}
+\begin{lstlisting}
+[ [ ['R . Reply] ] [:script Me] ]
+; First element: association list binding R to Reply.
+; Second element: expression requesting this script's execution.
+\end{lstlisting}
+\end{codeblock}
+
+These are nested lists, not three bindings. \code{R} is quoted
+because it is a binding name; \code{Reply} is evaluated because its value
+is the destination being bound. Here \code{Me} is the script object,
+not Monkey or the Showman.
+For a different sender the match method replies \code{nil}.
+The next catch-all \code{:match} method also replies \code{nil};
+without it, script search could wait rather than move on to
+Monkey's original catch-all handler.
+
+\wholelisting[firstline=51,lastline=66]{examples/misc/user-script.abclr2}
+
+The execution method asks the environment for \code{R}. Its continuation
+sends \emph{Hansei} to that application reply destination.
+Separately it sends \code{nil} to \code{C}, completing the evaluator's
+request. These destinations have different meanings.
+There is an ordering boundary: the lookup uses \code{<=}, not
+\code{<==}. The source does not wait for its continuation to deliver
+\emph{Hansei} before sending completion to \code{C}.
+Completion is not a receipt from the application caller.
+
+Try these commands in a fresh session, preferably with a scratch copy:
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "examples/misc/user-script" :use-source t)
+[Monkey-Showman <== :try] ; "Scratch!"
+[Poor-Audience <== :try]  ; "Scratch!"
+[[meta Monkey] <= [:add-script monkey-script]]
+[[meta Monkey] <== :scripts] ; inspect installation
+[Monkey-Showman <== :try]
+[Poor-Audience <== :try]
+\end{lstlisting}
+\end{codeblock}
+
+The final replies are \emph{Hansei} and \emph{Scratch!}.
+Installation puts the new script first. It handles the Showman's request;
+its failed match for Audience lets search reach Monkey's original handler.
+Removing a script with \code{[:remove-script message]} removes only the
+first script matching that message with \code{nil} reply and sender fields,
+not every matching script or a script selected by identity. The custom
+sender test here matters: a removal request with a \code{nil} sender does
+not select \code{monkey-script}. Script-list changes affect later dispatch,
+not a handler already being evaluated.
+\code{:add-script} does not send a reply: changing its arrow to
+\code{<==} waits for a reply which the protocol never promises.
+
+\paragraph{Check your understanding.}
+How can the script distinguish Showman and Audience without adding a
+field to \code{:play-trick}? \emph{Answer:} matching receives the sender
+as well as content. Why must a failed match reply?
+\emph{Answer:} search needs an explicit failure before trying another
+candidate.
+
+\subsection{MCP: Following a Meta-circular Interpreter}
+\label{sec:mcp-reading}
+
+We have followed individual environment and script protocols. Now combine
+them: \filepath{examples/misc/MCP.abclr2} expresses a metaobject generator,
+an evaluator, and a group manager in ABCL/R2 itself.
+\emph{Meta-circular} means that the interpreter is described using
+the language it interprets. It does not mean this file removes all
+dependencies on host Lisp and existing kernel objects.
+Read it in three passes: the group manager at the bottom, the generated
+metaobject, and finally the evaluator's expression cases.
+
+The ordinary object \code{Meta-circular} implements the group-manager
+protocol. Its state selects \code{MC-meta-gen} and \code{MC-eval}.
+Its \code{:new} handler delegates to the generator, adding the
+evaluator and \code{Me} as group manager.
+\code{:replace-meta-gen} and \code{:replace-evaluator} change these
+configuration fields, not necessarily every previously created object.
+\code{:new-group} delegates to the existing group machinery and sends
+\code{:initialize} to the resulting manager.
+
+The generator receives state specifications, lexical environment,
+scripts, evaluator, and group manager. Extra arguments are warned about
+and ignored. It creates a metaobject holding queue, state environment,
+script set, evaluator, manager, and a mode initially \code{:dormant}.
+Initializer expressions are evaluated by \code{:do-evlis};
+\code{pairlis} pairs variable names with the returned values.
+An environment extending \code{LexEnv} becomes the state, and the
+generator replies with the metaobject.
+
+For application traffic, follow this cycle:
+
+\wholelisting[firstline=33,lastline=43]{examples/misc/MCP.abclr2}
+
+\begin{enumerate}
+\item \code{[:message Message Reply Sender]} enqueues the three fields.
+If dormant, the metaobject becomes active and sends itself \code{:begin}.
+\item \code{:begin} dequeues one request, finds its script, and extends
+the state environment with match bindings.
+\item The evaluator executes the body. Its completion continuation sends
+\code{:end} to the metaobject.
+\item \code{:end} starts another queued request or returns to dormant mode.
+\end{enumerate}
+
+Application replies use \code{Reply}; advancement of the cycle uses the
+execution continuation. Reflective handlers expose state, scripts, queue, and
+evaluator. The one-field \code{[:find-script Message]} query supplies
+\code{nil} for reply and sender; ordinary dispatch uses the actual fields.
+
+In \code{MC-eval}, \code{Exp} is a tagged representation, not necessarily
+original source. \code{:compiled} invokes a compiled function with the
+context. \code{:variable} looks up ordinary names in \code{Env};
+\code{Me} and \code{Group} yield \code{[den Id]} and \code{Gid}.
+\code{:self-evaluate} invokes a supplied function.
+\code{:script} invokes script-object execution.
+An unknown representation warns; this is not an unrestricted Common Lisp
+evaluator.
+
+The send cases expose the difference between reply and completion:
+
+\begin{longtable}{L{0.25\textwidth}L{0.65\textwidth}}
+\textbf{Expression tag} & \textbf{Completion and delivery}\\\hline
+\endhead
+\code{:send-past} & Sends \code{nil} to \code{C}, then forwards the
+request to the target's metaobject with its separate \code{Reply} field.\\
+\code{:send-future} & Sends \code{nil} to \code{C}, obtains the future's
+reply destination, and forwards the request with that destination.\\
+\code{:send-now} & Uses \code{C} as the application's reply destination;
+the target's reply supplies the expression's result.\\
+\end{longtable}
+
+These describe the non-null-target paths. A now-send to \code{nil}
+does not reply in this definition.
+\code{:object-def} chooses the specified group or the current one,
+creates an object, and, if named, installs its denotation through
+\code{:set-local}. An explicit generator receives the group's evaluator;
+otherwise creation goes through the group manager.
+\code{:group-def} creates and optionally binds a group manager.
+
+\code{:do-progn} evaluates expressions sequentially, returning the last
+result, or \code{nil} for an empty body.
+\code{:do-evlis} evaluates sequentially and reconstructs a list of
+results. Both use continuations to wait for each expression.
+
+Here is a small teaching probe of the interpreter, not another original example:
+
+\begin{lstlisting}
+(inc "examples/misc/MCP" :use-source t)
+[object mc-counter
+  (group Meta-circular)
+  (state [n := 0])
+  (script
+    (=> :increment [n := (+ n 1)] !n)
+    (=> :value !n))]
+[mc-counter <== :increment] ; 1
+[mc-counter <== :increment] ; 2
+[mc-counter <== :value]     ; 2
+[[meta mc-counter] <== :evaluator] ; MC-eval
+\end{lstlisting}
+
+All four observations pass on the current image. They establish this
+creation/state/reply path, not coverage of every evaluator case.
+
+\paragraph{Check your understanding.}
+Why can a past-send complete before the receiver answers?
+\emph{Answer:} its evaluator sends \code{nil} to \code{C} independently
+of the application reply. A now-send instead lets the receiver answer
+directly to \code{C}.
+
+\subsection{Meta-meta: Reflecting on the Message Interpreter}
+\label{sec:meta-meta-reading}
+
+\filepath{examples/misc/meta-meta.abclr2} takes the queue/dispatch
+cycle one level higher. Its application object, \code{twice},
+replies with \code{(+ x x)}. The interesting change is which objects
+interpret its requests.
+
+Read the four numbered source steps in order.
+\code{the-meta-meta-gen} is placed in
+\code{(group-of (group-of group))}, and \code{the-meta-gen} in
+\code{(group-of group)}. Each \code{group-of} selects the group of
+its argument, climbing the group relationship in this setup;
+\code{group} is the current-group pseudo-variable.
+The second generator creates a metaobject explicitly configured with
+\code{(meta-gen the-meta-meta-gen)}. That object's own execution
+is therefore interpreted by a custom meta-metaobject.
+The third step creates \code{a-group} using \code{the-meta-gen};
+the fourth puts \code{twice} in that group.
+
+Keep three identities distinct:
+
+\begin{lstlisting}
+twice                  ; application object
+[meta twice]           ; interprets application messages
+[meta [meta twice]]    ; interprets interpreter messages
+\end{lstlisting}
+
+For \code{[twice <== 3]}, the first interpreter receives a
+\code{:message} envelope with application content 3.
+The higher interpreter sees messages involved in executing that
+interpreter, including its begin/end cycle.
+The generators retain the familiar state initialization, matching,
+environment extension, and completion protocol.
+Compare their repeated bodies with \code{MC-meta-gen}: logging is in
+the generated objects' \code{:message} handlers, not merely in the
+factories' creation handlers.
+
+The actual labels are \emph{Meta-gen receievs message} and
+\emph{Meta-meta receievs message}; spelling is the original's.
+Initialization also produces traffic. Not every log line is another
+application request, and numeric object identifiers are not stable.
+
+\begin{codeblock}
+\begin{lstlisting}
+(inc "examples/misc/meta-meta" :use-source t)
+[twice <== 3] ; 6, with meta-level diagnostic output
+\end{lstlisting}
+\end{codeblock}
+
+The commented historical transcript refers to \code{foo}, although
+the file defines \code{twice}, and one logging label differs.
+Treat it as an old illustration, not the literal session to reproduce.
+The isolated check confirms 6, both actual logging markers, and
+distinct identities at all three levels. It does not require a fixed
+log order or number of lines.
+
+\paragraph{Check your understanding.}
+Does a meta-metaobject make \code{twice} a subclass of its interpreter?
+\emph{Answer:} no. These are separate objects with an execution-control
+relationship, not an inheritance hierarchy.
+
+\paragraph{Reproducing the checks.}
+Run \code{make -C tutorial reflection-check}. Eighteen checks use
+distributed copies of \code{user-script}, \code{MCP}, and \code{meta-meta};
+Their metaobjects retain distinct application and execution-group bindings.
+Inputs, translations, and logs stay in \filepath{build/reflection-tests/}.
+An additional 38 checks exercise addition, first-match removal, duplicate
+scripts, reinstallation, retained state, and queued replies on both
+primary dispatch paths. They guard script-list/cache consistency, not
+arbitrary concurrent modification of an executing handler.

@@ -1,0 +1,186 @@
+;;; -*- Mode: abcl1; -*-
+;;; multicast.abclr2	 by MASUHARA, H.
+;;; July 17, 1992
+
+(provide 'multicast)
+
+#|
+syntax:
+	[targets <= message]
+	[targets <= message @ r]
+	[targets <== message]
+where targets is a (nested) list of ABCL/R2 objects and other Lisp objects.
+
+This message transmission must be executed by multicast-eval.
+|#
+
+(defun pickup-target-objects (target-list &aux target-place-list)
+   "A cons pair, whose car part is Receiving Templete and cdr part is
+list of pair of target and place-designator, is returned."
+   ;; e.g. let A,B,C... be objects, x,y,z,... be non-objects:
+   ;; (A (B x)) --> (p1 . p2)
+   ;;     where p1 = (nil (nil x)),
+   ;;           p2 = (q1 q2),
+   ;;           q1 = (A :car),
+   ;;           q2 = (B :cdr :car :car).
+    (labels ((tagify (list tag)
+               (cond ((null list) nil)
+                     ((consp list)
+                      (cons (tagify (car list)
+                                    (cons ':car tag))
+                            (tagify (cdr list)
+                                    (cons ':cdr tag))))
+                     ((r2sys::object-data-p list)
+                          (push  (cons list (reverse tag))
+				target-place-list)
+                          nil)
+                        (t list))))
+      (let ((template (tagify target-list nil)))
+        (cons template target-place-list))))
+
+(defun store-returned-value (result-holder value positions
+				&aux (next-position (first positions)))
+  "Store the returned (replied) value from each decomposed objects.
+This function takes three arguments: result-holder, value, and positions.
+The value is stored at result-holder, whose position is given by parameter
+positions."
+  (declare (type cons result-holder positions))
+  (if (null (rest positions))
+      (ecase next-position
+	(:car (setf (car result-holder) value))
+	(:cdr (setf (cdr result-holder) value)))
+      (ecase next-position
+	(:car (store-returned-value (car result-holder) value
+				    (rest positions)))
+	(:cdr (store-returned-value (cdr result-holder) value
+				    (rest positions))))))
+
+[object result-collector-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> :new
+       ;; Result values are collected and stored into result-holder.
+       ;; When the number of results becomes result-counter, reconstructed
+       ;; result is returned to original reply-destination.       
+       ![object result-collector
+	  (meta-gen non-reifying-meta)
+	  (state [result-holder := nil]
+		 [result-counter := 0]
+		 [reply-dest := nil])
+	  (script
+	   ;; initialization
+	   (=> [:init RH C] @ R
+	       [result-holder := RH]
+	       [result-counter := C]
+	       [reply-dest := R])
+	   ;; one of returned values
+	   (=> [:result value position]
+	       ;; the value is stored into result-holder
+	       (store-returned-value result-holder value position)
+	       [result-counter := (1- result-counter)]
+	       (if (zerop result-counter)
+		   [reply-dest <= result-holder])))]))]
+
+[object partial-value-receiver-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new position collector]
+       ;; A reply message is received and returned to a result-collector
+       ;; with position parameter.
+       ![cont value
+	      [collector <= [:result value position]]]
+       ))]
+
+;; Definition of the multicast handler. It receives message
+;; [:send Targets Message Reply], and delivers Message to each element
+;; of Targets.  When Reply is non-null value, then reply message of
+;; each message is collected and returned.
+[object multicaster
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:send Targets Message Reply] @ C
+       (temporary [decomposed := (pickup-target-objects Targets)])
+       [C <= nil]
+       (match decomposed
+	 (is [result-holder . target-places]
+	   (if (null Reply)
+	       ;; no reply is needed
+	       (dolist (target-spec target-places)
+		 (match target-spec
+		   (is [target-object . position]
+		       [target-object <= Message])))
+	       ;; reply collection is needed
+	       (let ((collector [result-collector-gen <== :new]))
+		 [collector <= [:init result-holder
+				      (length target-places)] @ Reply]
+		 (dolist (target-spec target-places)
+		   (match target-spec
+		     (is [target-object . position]
+			 [target-object <= Message
+					@ [partial-value-receiver-gen
+					   <== [:new position collector]]]))))
+	       )))))]
+
+;; Definition of the multicasting evaluator.  It is a front-end of an
+;; ordinary evaluator.  Its task is to intercept message-sending
+;; requests that have multiple targets, and delegate to object multicaster.
+[object multicast-eval-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> [:new original-eval]
+       ![object mulicast-eval
+	  (meta-gen non-reifying-meta)
+	  (script
+	   (=> [:do [:send-now Targets Message] Env Id Gid Eval] @ C
+	       (if (consp Targets)
+		   [multicaster <= [:send Targets Message C]]
+		   [original-eval <= [:do [:send-now Targets Message]
+					  Env Id Gid Eval] @ C]))
+	   (=> [:do [:send-past Targets Message Reply] Env Id Gid Eval] @ C
+	       (if (consp Targets)
+		   [multicaster <= [:send Targets Message Reply] @ C]
+		   [original-eval <= [:do [:send-past Targets Message Reply]
+					  Env Id Gid Eval] @ C]))
+	   (=> any @ C
+	       [original-eval <= any @ C]))]))]
+
+;; Install multicasting evaluator to specified group.
+;; The group manager must be able to change its evaluator by
+;; a message :replace-evaluator.
+;; *** Note ***
+;; This installation must be done prior to every use of multicasting
+;; messages and creation of objects using multicasts.
+;; Therefore, you cannot use multicast at toplevel because the toplevel
+;; object is always created before the installation of multicasts.
+;;
+;; To install multicast facilites onto toplevel enviroment, try evaluate
+;; 	[*eval* := [multicast-eval-gen <== [:new *eval*]]]
+;; since an evaluator for toplevel execution is bound to *eval*.
+[object multicast-installer
+  (script
+   (=> [:install GMgr]
+       [GMgr
+	<= [:replace-evaluator
+	    [multicast-eval-gen
+	     <== [:new [GMgr <== :evaluator]]]]]))]
+
+#|
+;; example
+(inc "multicast")
+
+[*eval* := [multicast-eval-gen <== [:new *eval*]]]
+
+[object twice
+  (script
+   (=> x !(+ x x)))]
+
+[object square
+  (script
+   (=> x !(* x x)))]
+
+[object identity
+  (script
+   (=> x !x))]
+
+[[twice square identity] <== 12]
+|#

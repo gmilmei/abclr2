@@ -1,0 +1,28 @@
+(inc "@ROOT@/build/loading-tests/helpers" :use-source t :verbose nil)
+[load-token := :global]
+[loaded-value := :unchanged]
+[loaded-object := nil]
+[group loading-group]
+[object loading-client
+ (group loading-group)
+ (script
+  (=> :local
+   (let ((load-token :local) (loaded-value nil) (loaded-object nil))
+    (inc "@ROOT@/build/loading-tests/context" :use-source t :verbose nil)
+    !(list loaded-value [loaded-object <== :value]
+           (eq (r2sys::group-of loaded-object) group)
+           (eq [[meta loaded-object] <== :evaluator] [loading-group <== :evaluator]))))
+  (=> :library
+   (let ((load-token :local) (loaded-value nil) (loaded-object nil))
+    (inc-lib "@ROOT@/build/loading-tests/context" :use-source t :verbose nil)
+    !(list loaded-value loaded-object load-token))))]
+(loading-check "inc-context-and-group" [loading-client <== :local] '(:local :local t t))
+(loading-check "inc-leaves-global-binding" loaded-value :unchanged)
+(loading-check "inc-object-stays-local" loaded-object nil)
+(loading-check "inc-lib-bypasses-locals" [loading-client <== :library] '(nil nil :local))
+(loading-check "inc-lib-uses-global-token" loaded-value :global)
+(loading-check "inc-lib-object-global-capture" [loaded-object <== :value] :global)
+(loading-check "inc-lib-global-group" (eq (r2sys::group-of loaded-object) loading-group) nil)
+(loading-check "inc-lib-global-evaluator" [[meta loaded-object] <== :evaluator] *eval*)
+(format t "~&LOADING-END~%")
+:q

@@ -1,0 +1,19 @@
+
+(defun retry-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&RETRY-PASS ~A~%" name)
+  (error "RETRY-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc "@ROOT@/build/retry-tests/fault-tolerant" :use-source t)
+(retry-check "initial-amount" [[[meta server] <== :state] <== [:value-of 'amount]] nil)
+[client <= [:initialize]]
+[client <= [:start server]]
+(retry-check "recovered-amount" [[[meta server] <== :state] <== [:value-of 'amount]] 10)
+[client <= [:start server]]
+(retry-check "second-request" [[[meta server] <== :state] <== [:value-of 'amount]] 20)
+[server <= [:initialize]]
+(retry-check "explicit-reset" [[[meta server] <== :state] <== [:value-of 'amount]] 0)
+[client <= [:start server]]
+(retry-check "after-reset" [[[meta server] <== :state] <== [:value-of 'amount]] 10)
+(retry-check "server-queue-empty" [[meta server] <== :queue] nil)
+(format t "~&RETRY-END~%")
+:q

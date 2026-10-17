@@ -1,0 +1,254 @@
+\subsection{A Lisp Reading Guide}
+\label{sec:lisp-reading}
+
+This section teaches the Lisp notation used by the original examples.
+Try the small expressions at the ABCL/R2 prompt. Comments beginning with
+a semicolon explain the expected result; do not type the prompt itself.
+The guide is deliberately selective: it is not a Common Lisp course.
+
+\subsubsection{Expressions, Symbols, and Literal Data}
+
+An expression such as \code{(+ 2 3)} puts the operation first.
+For an ordinary function call, argument expressions are evaluated before
+the function is called. Numbers and strings are literal values.
+An unquoted ordinary symbol in an expression names a binding:
+\begin{lstlisting}
+(+ 2 (* 3 4))                  ; => 14
+(let ((amount 10)) (+ amount 2)) ; => 12
+\end{lstlisting}
+The inner multiplication finishes before the outer addition.
+\code{let} introduces a local binding; its body can refer to \code{amount}.
+A \emph{binding} associates a name with a value. Its \emph{lexical scope}
+is determined by the surrounding source structure: the body of this
+\code{let} is where its local name is available.
+
+A symbol is not a string. \code{amount} is a name, \code{'amount} is that
+name as data, and \code{"amount"} is a string of characters.
+The quote character is shorthand for \code{quote}:
+\begin{lstlisting}
+'amount                       ; => AMOUNT
+'(a b c)                      ; => (A B C)
+(list 'a 'b 'c)               ; => (A B C)
+\end{lstlisting}
+Quote prevents evaluation of its operand. Thus the symbols inside
+\code{'(a b c)} are not looked up as variables.
+Unescaped symbol names are normally printed in uppercase; \code{n} and
+\code{N} read as the same symbol in the same package.
+
+A \emph{keyword} begins with a colon and evaluates to itself.
+It is convenient as a protocol tag: \code{:deposit}, \code{:new},
+and \code{:finish} are distinct symbols. No variable definition is
+needed to use them.
+\begin{lstlisting}
+(list :deposit 10)            ; => (:DEPOSIT 10)
+(let ((x 7)) [:point x (+ x 1)]) ; => (:POINT 7 8)
+\end{lstlisting}
+Here square brackets construct a list of evaluated elements.
+They also introduce ABCL/R2 operations such as object creation or sending;
+the recognized operator determines which interpretation applies.
+In a \emph{pattern}, however, a symbol such as \code{x} binds a part
+of the incoming value. Construction and matching are different uses
+of the same readable list notation.
+
+\subsubsection{Truth, Tests, and Control Flow}
+
+\code{nil} means false and is also the empty list. \code{t} is true.
+Every value other than \code{nil}, including zero, counts as true.
+\begin{lstlisting}
+(if nil :yes :no)             ; => :NO
+(if 0 :yes :no)               ; => :YES
+(null '())                    ; => T
+(not t)                       ; => NIL
+\end{lstlisting}
+\code{if} is a \emph{special form}: it does not eagerly evaluate both
+branches. It evaluates the test and only the selected branch.
+\code{progn} evaluates several expressions in sequence, with the final
+expression providing its value. \code{when} is a conditional sequence;
+\code{cond} chooses the first clause whose test succeeds.
+\code{and} stops at the first false operand; \code{or} stops at the
+first true operand. These are control operations, not ordinary eager calls.
+
+Use \code{=} to compare numbers. Use \code{eq} for symbol or object
+identity, as in testing a terminal keyword or checking a self-transfer.
+Use \code{equal} for structural comparison of lists and strings.
+Do not assume that \code{eq} compares two independently constructed
+lists by their contents.
+
+\subsubsection{Lists, Cons Cells, and Dotted Tails}
+
+A \emph{cons cell} has two parts: its \code{car} and its \code{cdr}.
+A proper list chains cons cells and ends in \code{nil}.
+\code{first} and \code{rest} are readable names for the head and tail
+of a list; \code{car} and \code{cdr} expose the underlying pair.
+\begin{lstlisting}
+(cons 'a '(b c))              ; => (A B C)
+(car '(a b c))                ; => A
+(cdr '(a b c))                ; => (B C)
+(cons 'd 'e)                  ; => (D . E)
+(cdr '(d . e))                ; => E
+\end{lstlisting}
+The dot means that the final tail is the value after the dot.
+\code{(d . e)} is a pair, not the two-element proper list \code{(d e)}.
+Its tail is the symbol \code{e}, not the list \code{(e)}.
+\code{(a b)} is shorthand for \code{(a . (b . nil))}.
+
+In a bracket pattern, \code{[A . B]} binds the head to \code{A} and
+the entire tail to \code{B}. \code{[[A] . B]} additionally requires
+the head to be a one-element proper list. These distinctions drive the
+original tree walker; do not replace dotted pairs by ordinary lists.
+
+\code{append} concatenates lists, copying all but the final argument.
+\code{nconc} performs destructive concatenation.
+\code{length} counts elements of a proper sequence; \code{nth} selects
+a zero-based element of a list. Later original programs also use arrays:
+\code{make-array} creates an array and \code{aref} accesses an element.
+Do not pass an arbitrary dotted pair where a proper list is required.
+
+\subsubsection{Bindings and Updating Values}
+
+\code{let} evaluates its initializers before its new bindings are available
+to the body. \code{let*} introduces bindings one at a time, so a later
+initializer can refer to an earlier binding.
+\begin{lstlisting}
+(let* ((x 3) (y (+ x 1))) (* x y)) ; => 12
+(let ((x 3)) [x := (+ x 1)] x)    ; => 4
+\end{lstlisting}
+\code{[x := value]} changes an ABCL/R2 binding.
+\code{setq} is also available, but this parser permits only one assignment
+pair in a \code{setq} form.
+\code{setf} is a host macro for updating a \emph{place}, such as the
+\code{cdr} of a pair or an array element. Do not confuse changing a binding
+with changing an existing data structure.
+
+An \emph{association list} stores bindings as pairs:
+\begin{lstlisting}
+(let ((bindings '((n . 3) (balance . 20))))
+  (cdr (assoc 'balance bindings))) ; => 20
+\end{lstlisting}
+\code{assoc} finds the pair whose key matches.
+\code{pairlis} pairs a list of names with a list of values.
+The original environment and script examples use association lists to
+describe bindings; those lists are data, whereas an environment is an
+object that implements lookup and update messages.
+A local set of bindings for one scope is called a \emph{frame}; an
+environment can link its frame to an enclosing environment.
+
+\subsubsection{Reading a Loop}
+
+ABCL/R2 implements \code{do} directly. Read its three parts as local
+bindings, a termination clause, and a body:
+\begin{lstlisting}
+(do ((n 0 (+ n 1)))
+    ((= n 3) n)
+  (format t "~A~%" n))
+; Prints 0, 1, 2 on separate lines; returns 3.
+\end{lstlisting}
+\code{n} starts at zero. Before each iteration the termination test is
+checked. If false, the body runs and the step expression updates \code{n}.
+If true, the result expressions of the termination clause run.
+With several step expressions, their new values are computed before the
+loop variables are updated. A variable with no step expression keeps its
+value unless the body changes it.
+
+The tree walker uses \code{(do ((tree received-tree)) ((null tree)) ...)}.
+There is no step expression: its \code{match} clauses explicitly update
+\code{tree}. Its loop result is \code{nil}, but the handler subsequently
+sends \code{!:finish}. The loop result is not that reply.
+
+\subsubsection{Functions, Macros, and Reader Notation}
+
+\code{defun} defines a host Lisp function; its parameter list describes
+arguments and its body computes a result.
+\code{\#'car} is shorthand for \code{(function car)} and denotes a function,
+not the symbol \code{'car}. \code{funcall} calls a function value;
+\code{mapcar} applies a function to corresponding list elements:
+\begin{lstlisting}
+(mapcar #'car '((a . 1) (b . 2))) ; => (A B)
+\end{lstlisting}
+\code{apply} calls a function using a list for its final arguments.
+The priority queues use \code{(apply \#'sort item-list predicate keys)}:
+when \code{keys} is \code{(:key \#'first)}, this is a call to
+\code{sort} with that keyword pair appended to its arguments.
+\code{sort} can rearrange its input list destructively; use its returned
+list rather than assuming that the old head still names the result.
+The host function is called with values, not ABCL forms to execute later.
+
+\begin{lstlisting}
+(apply #'+ '(1 2 3))             ; => 6
+(let ((items (list :a :b)))
+  (push :new items)
+  (list (pop items) items))       ; => (:NEW (:A :B))
+\end{lstlisting}
+
+\code{push} changes a place to hold a new cons cell; \code{pop} returns
+its first element and changes the place to the remaining tail.
+\code{pushnew} inserts only when the item is not already present
+under its equality test. These macros update bindings or places;
+they are not just pure list constructors. \code{caar}, \code{cadr},
+and \code{cddr} abbreviate \code{car} of \code{car}, \code{car} of
+\code{cdr}, and \code{cdr} of \code{cdr}, respectively.
+
+\code{lambda} describes an anonymous host function. As explained below,
+it does not automatically capture ABCL/R2 state.
+A \emph{closure} is a function value together with the lexical bindings
+it retains. Host Lisp closures retain host Lisp bindings, not arbitrary
+bindings in the ABCL/R2 interpreter's environment objects.
+
+A macro transforms source expressions before the transformed program
+is translated or executed. Unlike a function, it receives argument forms,
+not their computed values. \code{defmacro} defines such a transformation.
+Backquote builds a source template; comma inserts a form into it,
+and comma-at splices a list of forms into the surrounding list.
+The original inheritance macro is a compact example:
+\wholelisting[firstline=14,lastline=15]{examples/misc/inherit.abclr2}
+\code{\&rest args} collects all argument forms into a list.
+Thus \code{(inherit Any Reply Sender bird)} becomes
+\code{(reify-args-to-meta :inherit Any Reply Sender bird)}.
+The macro inserts the tag and preserves the argument forms; it does not
+itself perform inheritance.
+You only need to recognize the transformation here;
+Section~\ref{sec:reflection} explains what the reflective operation does.
+
+Other parameter markers you will meet are \code{\&optional} for optional
+positional arguments and \code{\&key} for keyword arguments.
+\code{\&aux} introduces initialized local variables in a host function
+or macro's parameter list. The macros in Copy and Report use it with
+\code{gensym}, which creates fresh symbols so generated temporary
+bindings do not accidentally capture a name in the caller's source.
+In \code{(inc "demo" :use-source t)}, the keyword selects an option
+and \code{t} supplies its value.
+\code{r2sys::create-primary-eval} names an internal symbol in the runtime
+package. A package groups symbol names; the double colon exposes an
+internal name rather than promising a portable public API.
+\code{\#.} in a source file requests evaluation while reading;
+it is different from an ordinary expression executed later.
+Do not treat a source file containing it as inert quoted data.
+\code{\#\textbackslash{}>} is a character literal, distinct from the
+one-character string \code{">"}; Copy's display-name helpers inspect
+such characters in strings without changing the object's identity.
+
+\code{\#| ... |\#} encloses a block comment; many original files put
+sample sessions there, so loading the file does not run those commands.
+\code{\#+feature} includes the next form only if that reader feature is
+enabled, and \code{\#-feature} does the opposite. The original sources
+use \code{\#+COMMENT} for inactive alternatives in the normal build.
+This is a reader condition, not a block comment or an extra runtime
+branch: do not combine such alternatives with the active implementation.
+
+\code{format} uses a control string: \code{\~{}A} prints a value readably
+for a person, \code{\~{}S} prints Lisp notation, and \code{\~{}\%} emits
+a newline. The first argument \code{t} selects standard output.
+\code{\~{}D} prints a decimal integer and \code{\~{}\&} begins a fresh
+line when needed. An open output stream can replace \code{t}; the
+monitoring examples use \code{open} to create their log streams and
+\code{close} when recording ends.
+These explanations are enough to read the printer in the original
+future example without assuming familiarity with Common Lisp formatting.
+
+\paragraph{Checkpoint, with answers.}
+What are the values of \code{(cdr '(a b))} and \code{(cdr '(a . b))}?
+The first is the list \code{(B)}; the second is the symbol \code{B}.
+Why does \code{'n} work as an environment lookup key?
+Because the environment needs the variable's name as data, not its value.
+Why is the inheritance macro not an ordinary function?
+Because it constructs a reflective expression from unevaluated source forms.

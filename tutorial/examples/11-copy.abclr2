@@ -1,0 +1,10 @@
+;; Supplemental copying probes using the distributed library.
+(inc-lib "lib/copy" :use-source t)
+
+[copy-source := (let ((shared 0))
+ [object copy-subject
+  (script
+   (=> :increment [shared := (1+ shared)] !shared)
+   (=> :value !shared)
+   (=> [:echo value] !value)
+   (=> :sender from S !S))])]

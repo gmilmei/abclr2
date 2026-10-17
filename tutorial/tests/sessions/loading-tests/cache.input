@@ -1,0 +1,28 @@
+(inc "@ROOT@/build/loading-tests/helpers" :use-source t :verbose nil)
+[cache-runs := 0]
+[loaded-policy := nil]
+[base := "@ROOT@/build/loading-tests/cache"]
+(loading-check "inc-defaults" (loading-inc-defaults) '("demo" nil t nil))
+(comp base :use-source t :verbose nil)
+(loading-check "comp-does-not-run-body" cache-runs 0)
+(loading-check "translation-created" (not (null (probe-file (loading-path base :lisp)))) t)
+(loading-check "fasl-created" (not (null (probe-file (loading-path base :fasl)))) t)
+(sleep 1.1)
+(loading-mark-translation (loading-path base :lisp) (loading-path base :lisp) ":SOURCE" ":CACHED-LISP")
+(inc base :verbose nil)
+(loading-check "newer-lisp-selected" loaded-policy :cached-lisp)
+(loading-check "inc-runs-body" cache-runs 1)
+(loading-build-marked-fasl base)
+(loading-check "fasl-strictly-newer" (> (file-write-date (loading-path base :fasl)) (file-write-date (loading-path base :lisp))) t)
+(inc base :verbose nil)
+(loading-check "newer-fasl-selected" loaded-policy :cached-fasl)
+(loading-check "cached-inc-runs-again" cache-runs 2)
+(inc base :use-source t :verbose nil)
+(loading-check "forced-source-selected" loaded-policy :source)
+(loading-check "forced-source-runs-once" cache-runs 3)
+(inc base :compile t :use-source t :verbose t)
+(loading-check "compile-and-force-source" loaded-policy :source)
+(loading-check "compile-and-inc-runs-once" cache-runs 4)
+(loading-check "missing-source-errors" (loading-missing-source-error "@ROOT@/build/loading-tests/absent") t)
+(format t "~&LOADING-END~%")
+:q

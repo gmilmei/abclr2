@@ -1,0 +1,21 @@
+
+(defun express-check (name actual expected)
+ (if (equal actual expected)
+  (format t "~&EXPRESS-PASS ~A~%" name)
+  (error "EXPRESS-FAIL ~A got ~S expected ~S" name actual expected)))
+(inc-lib "@ROOT@/build/express-tests/express/express" :use-source t)
+(inc "@ROOT@/build/express-tests/express/express-ex" :use-source t)
+[object finite-express-sender
+ (group express)
+ (script
+  (=> :peek ![clock <== :peek :express])
+  (=> :past-peek @ R [clock <= :peek @ R :express])
+  (=> :atomic-result !(atomic 42)))]
+(express-check "ordinary-dormant" [clock <== :peek] 0)
+(express-check "express-now" [finite-express-sender <== :peek] 0)
+(express-check "express-past-reply" [finite-express-sender <== :past-peek] 0)
+(express-check "atomic-result" [finite-express-sender <== :atomic-result] 42)
+[clock <= :stop]
+(express-check "after-stop" [clock <== :peek] 0)
+(format t "~&EXPRESS-END~%")
+:q

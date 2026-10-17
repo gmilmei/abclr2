@@ -1,0 +1,21 @@
+;;; -*- Mode: Text; -*-
+			   Acknowledgements
+	     [ABCL/R2 Gesi version (Jul. 7, 1995, 0.59)]
+
+The DEFSYSYTEM program is a part of CMU lisp-utilities.  We got a file
+defsystem.lisp via anonymous ftp to ftp.cs.cmu.edu, and it is saved as
+src/defsystem.lsp and src/defsystem30.lsp.
+
+Many bugs were deteced by Yoshinori Kishimoto at IPA.  We would like
+to thank him.
+
+The English version of the User's Guide is written with the aid of
+Jeff MaAffer.  We would like to thank him.
+
+The development of reify-args special form is inspired by Yasuaki
+Honda at Sony CSL.
+
+The event handling mechanism is inspired by Masakazu Hori.
+
+File tips/mcl2.0-environment.text is a contribution from Yasuaki
+Honda.

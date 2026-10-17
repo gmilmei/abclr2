@@ -1,0 +1,40 @@
+;;; Time Warp: priority queue
+;;; Feb. 12, 1992 by MASUHARA, H.
+
+;; priority queue generator
+[object pqueue-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> (bracket* :new predicate keys)
+       ![object pqueue
+	  (meta-gen non-reifying-meta)
+	  (state [item-list := nil])
+	  (script
+	   (=> [:enq item]
+	       [item-list
+		:= (apply #'sort (cons item item-list) predicate keys)])
+	   (=> :deq
+	       !(first item-list)
+	       [item-list := (rest item-list)])
+	   (=> :empty? !(null item-list))
+           (=> :listify !item-list)
+           (=> [:set l] [item-list := l])
+)]))]
+
+;; non-priority queue generator
+[object normal-queue-gen
+  (meta-gen non-reifying-meta)
+  (script
+   (=> :new 
+       ![object pqueue
+	  (meta-gen non-reifying-meta)
+	  (state [item-list := nil])
+	  (script
+	   (=> [:enq item]
+	       [item-list := (nconc item-list (list item))])
+	   (=> :deq
+	       !(first item-list)
+	       [item-list := (rest item-list)])
+	   (=> :empty? !(null item-list))
+           (=> :listify !item-list)
+           (=> [:set l] [item-list := l]))]))]

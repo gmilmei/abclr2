@@ -1,0 +1,28 @@
+(inc "@ROOT@/build/loading-tests/helpers" :use-source t :verbose nil)
+[saved-directories := *library-directories*]
+[*library-directories* := (list #P"@ROOT@/build/loading-tests/")]
+[module-runs := 0]
+[unprovided-runs := 0]
+(require 'tutorial-load-module :use-source t :verbose nil)
+(loading-check "module-loaded" module-runs 1)
+(loading-check "provide-registers-name" (not (null (member "tutorial-load-module" *modules* :test #'string=))) t)
+(require 'tutorial-load-module :use-source t :compile t :verbose nil)
+(loading-check "require-skips-even-forced" module-runs 1)
+(loading-check "skipped-compile-no-fasl" (probe-file (loading-path "@ROOT@/build/loading-tests/tutorial-load-module" :fasl)) nil)
+(inc-lib "@ROOT@/build/loading-tests/tutorial-load-module" :use-source t :verbose nil)
+(loading-check "inc-lib-explicit-reload" module-runs 2)
+(require "tutorial-load-module" :verbose nil)
+(loading-check "lowercase-string-skips" module-runs 2)
+(require 'tutorial-unprovided :use-source t :verbose nil)
+(require 'tutorial-unprovided :verbose nil)
+(loading-check "unprovided-loads-twice" unprovided-runs 2)
+(loading-check "require-does-not-auto-provide" (member "tutorial-unprovided" *modules* :test #'string=) nil)
+(loading-check "missing-module-silent-nil" (require 'tutorial-absent :verbose nil) nil)
+(provide "TuToRiAl-MaRkEr")
+(loading-check "provide-normalizes" (not (null (member "tutorial-marker" *modules* :test #'string=))) t)
+(loading-check "symbol-normalizes" (require-find-pathname-to-incorporate 'tutorial-unprovided *library-directories* *modules*) #P"@ROOT@/build/loading-tests/tutorial-unprovided")
+(loading-check "string-case-preserved" (require-find-pathname-to-incorporate "TUTORIAL-UNPROVIDED" *library-directories* *modules*) nil)
+[*library-directories* := saved-directories]
+(loading-check "directories-restored" *library-directories* saved-directories)
+(format t "~&LOADING-END~%")
+:q

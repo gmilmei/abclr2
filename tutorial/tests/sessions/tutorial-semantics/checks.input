@@ -1,0 +1,34 @@
+
+(defun semantic-check (name actual expected)
+  (if (equal actual expected)
+      (format t "~&SEMANTIC-PASS ~A~%" name)
+      (error "SEMANTIC-FAIL ~A: got ~S expected ~S" name actual expected)))
+[object ordered
+ (script (=> [:tag :special] !:first)
+         (=> [:tag value] !:fallback))]
+(semantic-check "first-script" [ordered <== [:tag :special]] :first)
+(semantic-check "fallback-script" [ordered <== [:tag :other]] :fallback)
+(semantic-check "shared-lexical"
+ (let ((n 0))
+   [object writer (script (=> :inc [n := (+ n 1)] !n))]
+   [object reader (script (=> :get !n))]
+   [writer <== :inc]
+   [reader <== :get]) 1)
+
+(inc-lib "@ROOT@/build/tutorial-semantics/future" :use-source t)
+
+(semantic-check "all-values-buffered-list"
+ (let ((f (make-future)))
+   [f <= [:reply 17]]
+   (all-values f :wait nil)) '(17))
+(semantic-check "all-values-empty-nonblocking"
+ (all-values (make-future) :wait nil) nil)
+; Queue the empty-buffer request before the first reply, explicitly.
+(semantic-check "all-values-empty-wait-scalar"
+ (let ((f (make-future)) (observed (make-future)))
+   [f <= [:all-values t t]
+      @ [cont value [observed <= [:reply value]]]]
+   [f <= [:reply 17]]
+   (next-value observed)) 17)
+(format t "~&SEMANTIC-END~%")
+:q

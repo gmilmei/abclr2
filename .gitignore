@@ -1,0 +1,49 @@
+# Local development and generated build/test output.
+/build/
+/work/
+/tmp/
+/.agents/
+/.codex/
+/.aws/
+
+# Compiled Lisp, object files, and saved runtime images.
+*.fasl
+*.FASL
+*.o
+*.sparcf
+*.dfasl
+*.dxl
+*.core
+/src/saved_abclr2*
+
+# Generated ABCL/R2 translations (src/ contains handwritten Lisp).
+/examples/**/*.lsp
+/lib/*.lsp
+/tutorial/examples/*.lsp
+
+# LaTeX intermediates.
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.bcf
+*.run.xml
+*.dvi
+*.xdv
+
+# Only the distributed book and the historical reference PDF are versioned.
+*.pdf
+!/doc/tutorial.pdf
+!/doc/Masuhara_1992.pdf
+
+# Editor and desktop temporary files.
+*~
+*.bak
+.DS_Store

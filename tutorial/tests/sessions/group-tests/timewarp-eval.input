@@ -1,0 +1,6 @@
+(inc "@ROOT@/build/group-tests/helpers" :use-source t :verbose nil)
+[*library-directories* := (list "@ROOT@/build/group-tests/lib/")]
+(inc "tw-load" :use-source t)
+(group-check-nrm :tw-eval [TW-group <== :evaluator] [group-of TW-eval-gen] [group-of TW-meta-eval-gen])
+(format t "~&GROUP-END~%")
+:q

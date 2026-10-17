@@ -1,0 +1,52 @@
+;;; -*- Mode:Lisp -*-
+;;; README.abclr2
+;;; An example program: Control of Parallelism.
+
+#|
+This example program is controlling of explosion of parallelism.
+Number of object created is suppressed by meta-level scheduling.
+
+For detailed mechanisms, please refer following article:
+	H. Masuhara, S. Matsuoka, T. Watanabe, and A. Yonezawa,
+	Object-Oriented Concurrent Reflective Languages can be
+	Implemented Efficiently,
+	in Proceedings of OOPSLA '92 (to appear).
+
+To run this example, incorporate file "start" first.  Then incorporate
+either file "fib" or file "qsort".
+
+File "fib" is for the computation of Fibonacci numbers.  An expression
+[test-pc <== [:start N]] starts the computation of Nth Fibonacci
+number with priotirty based scheduling.  On the other hand, an
+expression [test-np <== [:start N]] starts the computation with simple
+scheduling (FIFO manner).  Each computation creates log files named
+"{active,object}-{pc,np}-N". (The first word means that the number of
+active objects (objects which has non-processed messages) or the
+number of existing objects are counted; the second word means the
+scheduling policy.)
+
+File "qsort" is for the Quicksorting.  Before starting computation, an
+expression [init <= N] must be executed: this sets up size N
+randomized array for sorting on variable a.  Expressions
+ [test-pc <== [:start a N]] or [test-np <== [:start a N]]
+starts quicksorting with priority-based/FIFO-based scheduling.  These
+computation also generates the log files which names are given by the
+same manner of Fibonnaci comuptations'.
+
+Unfortunately, these programs are very time consumptive.  Please be
+careful not to run with big numbers.
+
+;;
+(inc "start")
+(inc "fib")
+[test-pc <== [:start 10]]
+[test-np <== [:start 10]]
+;; files active-pc-10, active-np-10, object-pc-10, and object-np-10
+;; are created.
+
+(inc "qsort")
+[init <= 10]
+[test-pc <== [:start a 10]]
+[test-np <== [:start a 10]]
+;; ditto
+|#

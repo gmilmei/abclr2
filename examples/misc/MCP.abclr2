@@ -1,0 +1,183 @@
+;;; -*- Mode:abcl1; -*-
+;;; ABCL/R2 system
+;;; Meta-circular definition of whole system
+;;; Jan. 2, 1992 by MASUHARA,H.
+;;; Jul.17, 1992 --- Future type message is added.
+;;; Jul.18, 1992 --- Group manager can replace its group kernel objects.
+;;; Jul.25, 1992 --- Script :scripts is added to metaobject.
+;;; Nov.22, 1992 --- Metaobject now can change its evaluator.
+;;; Jan. 8, 1993 --- Evaluator now can accept expressions with additional
+;;; 		     argumnets.
+;;; Feb.24, 1993 --- Changes in self-eval type expression.
+;;; Dec.12, 1994 --- Group manager now accepts extras for object creation.
+
+;;; Metaobject Generator
+[object MC-meta-gen
+ (script
+  (=> [:new StateSpec LexEnv Scripts Eval GMgr . Extra] @ R
+      (if Extra
+	(warn "~S ignores extra arguments ~S" Me Extra))
+      [object Metaobject
+       (state [queue := [queue-gen <== :new]]
+	      [state := nil]
+	      [scriptSet := scripts]
+	      [evaluator := Eval]
+;; PORT-BEGIN: Expose ownership as Group; retain Group-manager for execution.
+;;|	      [Group-manager := GMgr]
+;; PORT-ACTIVE
+	      [Group-manager := GMgr] [Group := GMgr]
+;; PORT-END
+	      [mode := ':dormant]) 
+       (script
+	(=> [:message Message Reply Sender]
+	    [queue <= [:enq [Message Reply Sender]]]
+	    (when (eq mode ':dormant)
+	      [mode := ':active]
+	      [Me <= :begin]))
+	(=> :begin
+	    (match [queue <== :deq]
+	      (is [Message Reply Sender]
+		  (match (find-script Message Reply Sender scriptSet)
+		    (is [Bindings ScriptBody]
+			[evaluator 
+			  <= [:do
+			      ScriptBody [env-gen <== [:new Bindings state]]
+			      Me Group-manager evaluator]
+			  @ [cont _
+			     [Me <= :end]]])
+		    (otherwise
+		     (warn "~S cannot handle the message ~S"
+			   [den Me] Message))))))
+	(=> :end
+	    (if (not [queue <== :empty?])
+	      [Me <= :begin]
+	      [mode := ':dormant]))
+	;; reflective operations
+	(=> :state !state)
+	(=> [:set-state s]
+	    [state := s])
+	(=> :queue @ R
+	    [queue <= :listify @ R])
+	(=> :dequeue @ R
+	    [queue <= :deq @ R])
+	(=> [:enqueue item]
+	    [queue <= [:enq item]])
+        (=> :scripts !scriptSet)
+	(=> [:find-script Message]
+	    !(search-script Message nil nil scriptSet))
+	(=> [:add-script new-script]
+	    [scriptSet := (cons new-script ScriptSet)])
+	(=> [:remove-script Message]
+	    [scriptSet := (remove-script Message nil nil ScriptSet)])
+        (=> :evaluator !evaluator)
+        (=> [:set-evaluator e] [evaluator := e])
+	)]
+      ;; initialize state variables
+      [Eval <= [:do-evlis (stateSpec-initforms StateSpec)
+		 LexEnv Metaobject GMgr Eval]
+	    @ [cont initValues
+		    [Metaobject
+		     <= [:set-state
+			 [env-gen 
+			  <== [:new (pairlis (stateSpec-varNames stateSpec)
+					     initValues)
+				    LexEnv]]]]
+		    [R <= Metaobject]]]))]
+
+;;; Evaluator
+[object MC-eval
+  (script
+   (=> [:do Exp Env Id Gid Eval] @ C
+       (match Exp
+	 (is [:compiled scriptBody]	; compiled script
+	     (funcall scriptBody C Env Id Gid Eval))
+	 (is [:variable Var]		; variable reference
+	     (match Var
+	       (is 'Me ![den Id])
+	       (is 'Group !Gid)
+	       (otherwise [Env <= [:value-of Var] @ C])))
+	 (is [:self-evaluate form]
+	     [C <= (funcall form)]) ;; was (eval form)
+	 (is [:send-past Target Message Reply . Extra]
+	     [C <= nil]
+	     (if (not (null Target))
+		 [[meta Target]
+		  <= [:message Message Reply [den Id] . Extra]]))
+	 (is [:send-future Target Message FutureObject . Extra]
+	     [C <= nil]
+	     (if (and Target FutureObject)
+		 [FutureObject
+		  <= :reply-dest
+		  @ [cont reply-dest
+		      [[meta Target]
+		       <= [:message Message reply-dest [den Id] . Extra]]]]))
+	 (is [:send-now Target Message . Extra]
+	     (if (not (null Target))
+		 [[meta Target] <= [:message Message C [den Id] . Extra]]))
+	 (is [:script scriptObject]	; script object
+	     (call-script-body scriptObject C Env Id Gid Eval))
+	 (is [:object-def Name Meta-gen GMgr State Script . Extra]
+	     (let ((Group-for-obj (or GMgr Gid))
+		   (set-name 
+		    [cont object
+			  (if Name
+			      [Env <= [:set-local Name [den object]] @ C]
+			      [C <= [den object]])]))
+	       (if Meta-gen
+		   [Group-for-obj 
+		    <= :evaluator
+		    @ [cont evaluator-for-obj
+			    [Meta-gen
+			     <= [:new State Env Script evaluator-for-obj
+				      Group-for-obj . Extra]
+			     @ set-name]]]
+		   [Group-for-obj <= [:new State Env Script . Extra]
+				  @ set-name])))
+	 (is [:group-def Name StateSpec Script]
+	     [Gid <= [:new-group StateSpec Env Script]
+		  @ (if Name
+			[cont GMgr
+			      [Env <= [:set-local Name GMgr] @ C]]
+			C)])
+	 (otherwise
+	  (warn "Illegal expression ~S" Exp))))
+   ;; sequential execution
+   (=> [:do-progn [] Env Id Gid Eval] @ C
+       [C <= nil])
+   (=> [:do-progn [LastExp] Env Id Gid Eval] @ C
+       [Eval <= [:do LastExp Env Id Gid Eval] @ C])
+   (=> [:do-progn [FirstExp . RestExp] Env Id Gid Eval] @ C
+       [Eval <= [:do FirstExp Env Id Gid Eval]
+	     @ [cont _
+		     [Eval <= [:do-progn RestExp Env Id Gid Eval] @ C]]])
+   ;; list evaluation
+   (=> [:do-evlis [] Env Id Gid Eval] @ C
+       [C <= nil])
+   (=> [:do-evlis [FirstExp . RestExp] Env Id Gid Eval] @ C
+       [Eval <= [:do FirstExp Env Id Gid Eval]
+	     @ [cont FirstVal
+		     [Eval <= [:do-evlis RestExp Env Id Gid Eval]
+			   @ [cont RestVals
+				   [C <= [FirstVal . RestVals]]]]]]))]
+
+;;; Group Manager
+[object Meta-circular
+   (state [meta-gen := MC-meta-gen]
+	  [evaluator := MC-eval])
+   (script
+    (=> :meta-gen !meta-gen)
+    (=> :evaluator !evaluator)
+    (=> [:new StateSpec Env Script . Extra] @ C
+	[meta-gen <= [:new StateSpec Env Script evaluator Me . Extra] @ C])
+    (=> [:new-group StateSpec Env Script] @ C
+	[group <= [:new StateSpec Env Script]
+	       @ [cont meta-GMgr
+		       [[den meta-GMgr] <= :initialize]
+		       [C <= [den meta-GMgr]]]])
+    (=> [:replace-meta-gen new-meta-gen]
+	[meta-gen := new-meta-gen])
+    (=> [:replace-evaluator new-evaluator]
+	[evaluator := new-evaluator])
+    (=> :initialize
+	;; do nothing
+	))]
