@@ -162,10 +162,32 @@ with every custom group. This is why the original examples' setup and
 loading order must be read as part of their protocols.
 
 \paragraph{Require a module name, not an arbitrary file path.}
+\label{sec:library-path}
 \code{*library-directories*} contains the directories searched by the
 ABCL/R2 \code{require} macro. It selects the first directory containing
 the named \code{.abclr2} source, then uses \code{inc-lib} to load it.
-For example, the supplied library path supports \code{(require 'future)}.
+The default value is \code{(list "")}: only the current working directory
+is searched. The distribution's \filepath{lib/} directory is not added
+automatically. Before running examples that require its modules, add it
+at the ABCL/R2 prompt, starting the interpreter at the repository root:
+
+\begin{codeblock}
+\begin{lstlisting}
+[*library-directories* :=
+  (cons #P"lib/" *library-directories*)]
+(require 'future)
+\end{lstlisting}
+\end{codeblock}
+
+Here \code{\#P"lib/"} is Common Lisp's pathname literal for a directory.
+Keep the trailing slash: the search uses the directory component of
+each entry. Relative entries are resolved against the working directory,
+not the executable's location or the directory of the file being loaded.
+Use an absolute directory pathname when starting elsewhere.
+Explicit \code{inc} and \code{inc-lib} calls do not search this list;
+\code{(inc-lib "lib/future")} instead names the file directly.
+The path is session configuration; after \code{:reset}, set it again.
+
 Symbols are converted to lowercase names. String arguments retain their
 case during search; prefer symbols or explicitly lowercase strings.
 \code{provide} normalizes both symbols and strings to lowercase.
@@ -183,8 +205,8 @@ previous search path, and restore it after the experiment:
 \end{lstlisting}
 \end{codeblock}
 
-Here \code{\#P"..."} is Common Lisp's pathname literal; the example
-directory is a placeholder to replace, not a required installation path.
+The absolute example directory is a placeholder to replace, not a
+required installation path.
 Putting it first makes its source win over later directories. A typical
 module includes \code{(provide 'my-module)} to register its name in
 \code{*modules*}. \code{require} does not register a module automatically:

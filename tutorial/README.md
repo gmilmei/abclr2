@@ -31,6 +31,10 @@ The book includes an alphabetical concept and protocol index with linked
 section and page references, alongside its syntax overview and source reading map.
 See VALIDATION.md for the final acceptance checks, environment, and limits.
 All required check scripts are distributed in tutorial/tests/.
+For examples containing `require`, interactive sessions must add `lib/`
+to `*library-directories*`; the default searches only the current directory.
+The original-example tests explicitly set an absolute path to their copied
+libraries under `build/original-tests/lib/` before loading the examples.
 Builds and checks create their build/ directories automatically.
 run-tests.lisp is the shared native test runner; cases.lisp holds transcript
 contracts and sessions/ contains readable ABCL/R2 inputs. Source excerpts

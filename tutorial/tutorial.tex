@@ -474,10 +474,13 @@ introspection operation it might support.
 \section{Futures and Express Messages}
 \label{sec:message-extensions}
 
-Future-type messages are a library feature. Load the library before
-using them:
+Future-type messages are a library feature. In a fresh session started
+at the repository root, configure the search path as explained in
+Section~\ref{sec:library-path}, then load the library:
 
 \begin{lstlisting}
+[*library-directories* :=
+  (cons #P"lib/" *library-directories*)]
 (require 'future)
 \end{lstlisting}
 

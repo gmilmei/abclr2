@@ -58,10 +58,13 @@ The original consumer makes this explicit:
 \wholelisting[firstline=36,lastline=46]{examples/misc/future-ex.abclr2}
 
 In a fresh session using the rebuilt port at the repository root,
-load the unchanged original source:
+add the library directory before loading the unchanged original source.
+Its \code{(require 'future)} uses this path, not the example's directory:
 
 \begin{codeblock}
 \begin{lstlisting}
+[*library-directories* :=
+  (cons #P"lib/" *library-directories*)]
 (inc "examples/misc/future-ex" :use-source t)
 [print-leaves <= '((a b) (c (d . e) f) g)]
 ; Prints A, B, C, D, E, F, G on separate lines.

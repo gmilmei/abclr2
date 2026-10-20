@@ -57,6 +57,20 @@ At the ABCL/R2 prompt, try:
 Type `:q` to quit or `:reset` to reset the session. Keep experiments in
 your own files rather than editing the original examples.
 
+Before loading examples that use `require`, add the distributed libraries
+to the session's search path (with the interpreter started at the repository root):
+
+```lisp
+[*library-directories* := (cons #P"lib/" *library-directories*)]
+(inc "examples/misc/future-ex" :use-source t)
+```
+
+By default, `require` searches only the current directory, not `lib/`.
+The first matching `.abclr2` source in `*library-directories*` is selected.
+Keep the trailing slash on directory entries; use an absolute directory
+when starting elsewhere. Explicit `inc` and `inc-lib` paths do not use
+this search list. After `:reset`, configure it again.
+
 ## Build the book and run checks
 
 ```sh
